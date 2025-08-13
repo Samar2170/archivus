@@ -2,7 +2,6 @@ package server
 
 import (
 	"archivus/config"
-	"archivus/internal/db"
 	"archivus/internal/middleware"
 	"archivus/internal/service"
 	"archivus/pkg/logging"
@@ -22,10 +21,7 @@ func HealthCheck(w http.ResponseWriter, r *http.Request) {
 }
 
 func GetServer(testEnv bool) *http.Server {
-	if !testEnv {
-		db.InitDB()
-	}
-	service.Setup()
+	service.Setup(testEnv)
 
 	logger := logging.AuditLogger
 	mux := mux.NewRouter()

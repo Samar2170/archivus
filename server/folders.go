@@ -22,6 +22,7 @@ func CreateFolderHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Folder == "" {
 		response.BadRequestResponse(w, "Folder path is required")
+		return
 	}
 	err = helpers.CreateFolder(username, req.Folder)
 	if err != nil {

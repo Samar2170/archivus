@@ -12,14 +12,14 @@ func Login(w http.ResponseWriter, r *http.Request) {
 	var loginReq auth.LoginUserRequest
 	err := reqhelpers.DecodeRequest(r, &loginReq)
 	if err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		response.BadRequestResponse(w, "Invalid request body")
 		return
 	}
 
 	// Validate the login credentials
 	token, userId, err := auth.LoginUser(loginReq)
 	if err != nil {
-		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
+		response.UnauthorizedResponse(w, err.Error())
 		return
 	}
 

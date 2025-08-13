@@ -7,7 +7,10 @@ import (
 	"os"
 )
 
-func Setup() {
+func Setup(testEnv bool) {
+	if !testEnv {
+		db.InitDB()
+	}
 	// This function is intentionally left empty.
 	// It can be used to initialize any global variables or configurations
 	// that are needed for the service to run.

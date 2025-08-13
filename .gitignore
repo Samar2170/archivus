@@ -11,3 +11,7 @@ config.yaml
 *.db
 
 
+**/__test__dir__/**
+
+
+uploads/**

@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"net/http"
+	"strings"
 
 	"archivus/internal/auth"
 	"archivus/pkg/response"
@@ -31,7 +32,17 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		token := r.Header.Get("Authorization")
+		tokenString := r.Header.Get("Authorization")
+		token := ""
+		if tokenString != "" {
+			parts := strings.Split(tokenString, " ")
+			if len(parts) == 2 && parts[0] == "Bearer" {
+				token = parts[1]
+			} else {
+				response.BadRequestResponse(w, "Invalid Authorization header format")
+				return
+			}
+		}
 		apiKeyHeader := r.Header.Get("X-API-Key")
 		if token == "" && apiKeyHeader == "" {
 			response.UnauthorizedResponse(w, "Missing JWT Token or API Key")

@@ -4,6 +4,7 @@ import (
 	"archivus/internal/helpers"
 	"archivus/internal/service"
 	"archivus/pkg/logging"
+	reqhelpers "archivus/pkg/reqHelpers"
 	"archivus/pkg/response"
 	"bytes"
 	"net/http"
@@ -21,7 +22,8 @@ func GetFilesHandler(w http.ResponseWriter, r *http.Request) {
 		response.InternalServerErrorResponse(w, err.Error())
 		return
 	}
-	response.JSONResponse(w, files)
+	data := map[string]interface{}{"files": files}
+	response.JSONResponse(w, data)
 }
 
 func UploadFilesHandler(w http.ResponseWriter, r *http.Request) {
@@ -64,11 +66,20 @@ func UploadFilesHandler(w http.ResponseWriter, r *http.Request) {
 
 func CreateFolderHandler(w http.ResponseWriter, r *http.Request) {
 	username := r.Header.Get("username")
-	folderPath := r.FormValue("folder")
-	if folderPath == "" {
+	type CreateFolderRequest struct {
+		Folder string
+	}
+	var req CreateFolderRequest
+	err := reqhelpers.DecodeRequest(r, &req)
+	if err != nil {
+		logging.Errorlogger.Error().Msg(err.Error())
+		response.BadRequestResponse(w, "Invalid request body")
+		return
+	}
+	if req.Folder == "" {
 		response.BadRequestResponse(w, "Folder path is required")
 	}
-	err := helpers.CreateFolder(username, folderPath)
+	err = helpers.CreateFolder(username, req.Folder)
 	if err != nil {
 		logging.Errorlogger.Error().Msg(err.Error())
 		response.InternalServerErrorResponse(w, err.Error())

@@ -1,1 +1,13 @@
 config/config.yaml
+
+config.yaml
+
+.DS
+
+**/logs/**
+
+**/__debug*
+
+*.db
+
+

@@ -2,6 +2,7 @@ package service
 
 import (
 	"archivus/config"
+	"archivus/internal/auth"
 	"archivus/internal/db"
 	"archivus/internal/models"
 	"archivus/internal/utils"
@@ -177,7 +178,7 @@ func GetSizeForDirEntry(file fs.DirEntry) float64 {
 }
 
 func FindFiles(apiKey string, folder string) ([]DirEntry, float64, error) {
-	user, err := models.GetUserByApiKey(apiKey)
+	user, err := auth.GetUserByApiKey(apiKey)
 	if err != nil {
 		return nil, 0, utils.HandleError("FindFiles", "Failed to get user by API key", err)
 	}
@@ -239,7 +240,7 @@ func splitPathTillUserDir(path string, username string) string {
 }
 
 func GetAllFolders(apiKey string) ([]FolderEntry, error) {
-	user, err := models.GetUserByApiKey(apiKey)
+	user, err := auth.GetUserByApiKey(apiKey)
 	if err != nil {
 		return nil, utils.HandleError("GetAllFolders", "Failed to get user by API key", err)
 	}

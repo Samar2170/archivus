@@ -23,3 +23,25 @@ func createToken(userID, username string) (string, error) {
 	}
 	return tokenString, nil
 }
+
+func DecodeToken(tokenString string) (string, string, error) {
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, utils.HandleError("DecodeToken", "Unexpected signing method", nil)
+		}
+		return []byte(config.Config.SecretKey), nil
+	})
+	if err != nil || !token.Valid {
+		return "", "", utils.HandleError("DecodeToken", "Invalid token", err)
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return "", "", utils.HandleError("DecodeToken", "Invalid token claims", nil)
+	}
+
+	userID := claims["user_id"].(string)
+	username := claims["username"].(string)
+
+	return userID, username, nil
+}

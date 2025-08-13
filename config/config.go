@@ -44,6 +44,9 @@ func LoadConfig(filePath string) error {
 	if Config.StorageDbFile == "" {
 		Config.StorageDbFile = "storage.db"
 	}
+	if Config.UploadsDir != "" && !filepath.IsAbs(Config.UploadsDir) {
+		Config.UploadsDir = filepath.Join(BaseDir, Config.UploadsDir)
+	}
 	if Config.UploadsDir == "" {
 		Config.UploadsDir = filepath.Join(BaseDir, "uploads")
 	}
@@ -58,15 +61,15 @@ const (
 )
 
 func init() {
-	currentFile, err := os.Executable()
-	if err != nil {
-		panic(err)
-	}
-	BaseDir = filepath.Dir(currentFile)
+	var err error
+	// currentFile, err := os.Executable()
+	// if err != nil {
+	// 	panic(err)
+	// }
 
-	BaseDir = filepath.Dir(currentFile)
-	// BaseDir = "/Users/samararora/Desktop/fileup-backend/"
-	err = LoadConfig(BaseDir + "/config/config.yaml")
+	// BaseDir = filepath.Dir(currentFile)
+	BaseDir = "/Users/samararora/Desktop/PROJECTS/archivus/"
+	err = LoadConfig(BaseDir + "config.yaml")
 	if err != nil {
 		panic("Failed to load configuration: " + err.Error())
 	}

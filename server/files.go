@@ -1,6 +1,7 @@
 package server
 
 import (
+	"archivus/internal/helpers"
 	"archivus/internal/service"
 	"archivus/pkg/logging"
 	"archivus/pkg/response"
@@ -67,7 +68,7 @@ func CreateFolderHandler(w http.ResponseWriter, r *http.Request) {
 	if folderPath == "" {
 		response.BadRequestResponse(w, "Folder path is required")
 	}
-	err := service.CreateFolder(username, folderPath)
+	err := helpers.CreateFolder(username, folderPath)
 	if err != nil {
 		logging.Errorlogger.Error().Msg(err.Error())
 		response.InternalServerErrorResponse(w, err.Error())

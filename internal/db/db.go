@@ -2,6 +2,7 @@ package db
 
 import (
 	"archivus/config"
+	"path/filepath"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -9,21 +10,19 @@ import (
 
 var StorageDB *gorm.DB
 
-func connectToStorageDB() {
+func InitDB() {
 	var err error
-	StorageDB, err = gorm.Open(sqlite.Open(config.Config.StorageDbFile), &gorm.Config{})
+	storageDbFile := filepath.Join(config.BaseDir, config.Config.StorageDbFile)
+	StorageDB, err = gorm.Open(sqlite.Open(storageDbFile), &gorm.Config{})
 	if err != nil {
 		panic("failed to connect database")
 	}
 }
 
-func init() {
-	connectToStorageDB()
-}
-
 func InitTestDB() {
 	var err error
-	StorageDB, err = gorm.Open(sqlite.Open(config.TestDbFile), &gorm.Config{})
+	testDbFilePath := filepath.Join(config.BaseDir, config.TestDbFile)
+	StorageDB, err = gorm.Open(sqlite.Open(testDbFilePath), &gorm.Config{})
 	if err != nil {
 		panic("failed to connect test database")
 	}

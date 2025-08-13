@@ -3,12 +3,11 @@ package middleware
 import (
 	"net/http"
 
-	"archivus/internal/models"
-	"archivus/pkg/logging"
+	"archivus/internal/auth"
 	"archivus/pkg/response"
 )
 
-var ExemptPaths = map[string]struct{}{"/files/download/": {}}
+var ExemptPaths = map[string]struct{}{"/files/download/": {}, "/login/": {}}
 
 func CheckExemptPath(path string) bool {
 	for exemptPath := range ExemptPaths {
@@ -16,33 +15,49 @@ func CheckExemptPath(path string) bool {
 			if path[:len(exemptPath)] == exemptPath {
 				return true
 			}
+		} else {
+			if path == exemptPath {
+				return true
+			}
 		}
 	}
 	return false
 }
 
-// handle jwt token logic
-func APIKeyMiddleware(next http.Handler) http.Handler {
+func AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		exempt := CheckExemptPath(r.URL.Path)
 		if exempt {
 			next.ServeHTTP(w, r)
 			return
 		}
+		token := r.Header.Get("Authorization")
 		apiKeyHeader := r.Header.Get("X-API-Key")
-		logging.AuditLogger.Info().Msgf("API Key: %s", apiKeyHeader)
-		if apiKeyHeader == "" {
-			response.UnauthorizedResponse(w, "Missing API Key")
+		if token == "" && apiKeyHeader == "" {
+			response.UnauthorizedResponse(w, "Missing JWT Token or API Key")
 			return
 		}
-		user, err := models.GetUserByApiKey(apiKeyHeader)
-		if err != nil {
-			response.UnauthorizedResponse(w, "Invalid API Key")
-			return
+		var username, userId string
+		var err error
+		if token != "" {
+			userId, username, err = auth.DecodeToken(token)
+			if err != nil {
+				response.UnauthorizedResponse(w, "Invalid JWT Token")
+				return
+			}
+		} else {
+			user, err := auth.GetUserByApiKey(apiKeyHeader)
+			if err != nil {
+				response.UnauthorizedResponse(w, "Invalid API Key")
+				return
+			}
+			userId = user.ID.String()
+			username = user.Username
 		}
-		r.Header.Set("X-API-Key", apiKeyHeader)
-		r.Header.Set("username", user.Username)
-		r.Header.Set("userId", user.ID.String())
+		r.Header.Set("username", username)
+		r.Header.Set("userId", userId)
 		next.ServeHTTP(w, r)
 	})
 }
+
+// handle jwt token logic

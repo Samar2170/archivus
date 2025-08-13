@@ -98,7 +98,8 @@ func GetSignedUrlHandler(w http.ResponseWriter, r *http.Request) {
 		response.InternalServerErrorResponse(w, err.Error())
 		return
 	}
-	response.SuccessResponse(w, signedUrl)
+	response.JSONResponse(w, map[string]interface{}{
+		"signed_url": signedUrl})
 }
 
 func DownloadFileHandler(w http.ResponseWriter, r *http.Request) {
@@ -126,5 +127,7 @@ func DownloadFileHandler(w http.ResponseWriter, r *http.Request) {
 		response.InternalServerErrorResponse(w, err.Error())
 		return
 	}
+	w.Header().Set("Content-Disposition", "attachment; filename="+filepath)
+	w.Header().Set("Content-Type", "application/octet-stream")
 	http.ServeContent(w, r, filepath, time.Now(), bytes.NewReader(f))
 }

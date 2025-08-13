@@ -33,6 +33,9 @@ var fnames = [2]string{
 var testToken string
 var testUserID string
 
+var filesSignedUrls []string
+var filePaths []string
+
 func removeExistingTestDB() {
 	dbFilePath := filepath.Join(config.BaseDir, config.TestDbFile)
 	if _, err := os.Stat(dbFilePath); err == nil {
@@ -186,8 +189,6 @@ func TestAddFolder(t *testing.T) {
 }
 
 func TestUploadFiles(t *testing.T) {
-
-	// for _, file := range files {
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
 	for _, f := range fnames {
@@ -235,8 +236,71 @@ func TestListFiles(t *testing.T) {
 	log.Println("Response:", response)
 	require.Equal(t, 200, w.Code, "Expected status code 200, got %d", w.Code)
 
-	files, ok := response["files"].([]interface{})
-	if !ok || len(files) != len(fnames) {
+	filesData := response["files"].([]interface{}) // this works
+	var files []models.FileMetadata
+
+	tmp, _ := json.Marshal(filesData)
+	_ = json.Unmarshal(tmp, &files)
+
+	if err != nil || len(files) != len(fnames) {
 		t.Fatal("Expected files to be a non-empty slice")
+	}
+	for _, f := range files {
+		filePaths = append(filePaths, f.FilePath)
+	}
+}
+
+func TestDownloadFile(t *testing.T) {
+	for _, f := range filePaths {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", "/files/get-signed-url/"+f, nil)
+		makeTestRequest(w, req, map[string]string{
+			"Authorization": "Bearer " + testToken,
+		})
+
+		if w.Code != http.StatusOK {
+			t.Errorf("Expected status code 200, got %d for file %s", w.Code, f)
+		}
+		response, err := decodeJson(w)
+		if err != nil {
+			t.Fatalf("Error unmarshalling response: %v", err)
+		}
+		log.Println("Response:", response)
+		signedUrl := response["signed_url"].(string)
+		req = httptest.NewRequest("GET", "/files/download/"+signedUrl, nil)
+		w = httptest.NewRecorder()
+		makeTestRequest(w, req, map[string]string{
+			"Authorization": "Bearer " + testToken,
+		})
+		if w.Code != http.StatusOK {
+			t.Errorf("Expected status code 200, got %d for file %s", w.Code, f)
+		}
+		contentDisposition := w.Header().Get("Content-Disposition")
+		if contentDisposition == "" {
+			t.Errorf("Expected Content-Disposition header to be set for file %s", f)
+		} else {
+			log.Println("Content-Disposition:", contentDisposition)
+		}
+		newFileName := filepath.Join(config.BaseDir, TEST_DIR, "downloaded_"+filepath.Base(f))
+		newFile, err := os.Create(newFileName)
+		if err != nil {
+			t.Fatalf("Error creating file %s: %v", newFileName, err)
+		}
+		defer newFile.Close()
+		_, err = io.Copy(newFile, w.Body)
+		if err != nil {
+			t.Fatalf("Error writing to file %s: %v", newFileName, err)
+		}
+		// verify non empty file
+		fileInfo, err := newFile.Stat()
+		if err != nil {
+			t.Fatalf("Error getting file info for %s: %v", newFileName, err)
+		}
+		if fileInfo.Size() == 0 {
+			t.Errorf("Downloaded file %s is empty", newFileName)
+		} else {
+			log.Printf("Downloaded file %s successfully with size %d bytes\n", newFileName, fileInfo.Size())
+		}
+
 	}
 }

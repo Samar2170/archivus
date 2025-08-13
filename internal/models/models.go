@@ -7,13 +7,9 @@ import (
 	"gorm.io/gorm"
 )
 
-func init() {
-	db.StorageDB.AutoMigrate(&User{}, &FileMetadata{}, &Directory{}, &Tags{}, &UserPreference{})
-}
-
 type User struct {
 	*gorm.Model
-	ID       uuid.UUID `gorm:"type:uuid;default:uuid_generate_v4();primaryKey"`
+	ID       uuid.UUID `gorm:"type:uuid;primaryKey"`
 	Username string    `gorm:"uniqueIndex;not null"`
 	Password string    `gorm:"not null"`
 	Email    string    `gorm:"uniqueIndex;"`
@@ -29,12 +25,6 @@ func GetUserById(id uint) (User, error) {
 func GetUserByUsername(username string) (User, error) {
 	var user User
 	err := db.StorageDB.Where("username = ?", username).First(&user).Error
-	return user, err
-}
-
-func GetUserByApiKey(apiKey string) (User, error) {
-	var user User
-	err := db.StorageDB.Where("api_key = ?", apiKey).First(&user).Error
 	return user, err
 }
 

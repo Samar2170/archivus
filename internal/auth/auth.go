@@ -2,8 +2,11 @@ package auth
 
 import (
 	"archivus/internal/db"
+	"archivus/internal/helpers"
 	"archivus/internal/models"
 	"archivus/internal/utils"
+
+	"github.com/google/uuid"
 )
 
 func CreateUser(username, password, pin, email string) (string, string, error) {
@@ -21,17 +24,27 @@ func CreateUser(username, password, pin, email string) (string, string, error) {
 	// Hash the PIN
 	hashedPin := utils.HashString(pin)
 	hashedPassword := utils.HashString(password)
-
+	tx := db.StorageDB.Begin()
 	// Create user in the database
 	user := models.User{
+		ID:       uuid.New(),
 		Username: username,
 		PIN:      hashedPin,
 		Email:    email,
 		APIKey:   apiKey,
 		Password: hashedPassword,
 	}
-	if err := db.StorageDB.Create(&user).Error; err != nil {
+	if err := tx.Create(&user).Error; err != nil {
+		tx.Rollback()
 		return "", "", utils.HandleError("CreateUser", "Failed to create user in database", err)
+	}
+	err = helpers.CreateFolder(user.Username, "")
+	if err != nil {
+		tx.Rollback()
+		return "", "", utils.HandleError("CreateUser", "Failed to create user folder", err)
+	}
+	if err := tx.Commit().Error; err != nil {
+		return "", "", utils.HandleError("CreateUser", "Failed to commit transaction", err)
 	}
 
 	return apiKey, user.ID.String(), nil
@@ -48,7 +61,7 @@ func LoginUser(req LoginUserRequest) (string, string, error) {
 	var err error
 	var token string
 	var userId string
-	if req.Username == "" || req.Password == "" || req.PIN == "" {
+	if req.Username == "" || (req.Password == "" && req.PIN == "") {
 		return token, userId, utils.HandleError("LoginUser", "Username, password, and PIN cannot be empty", nil)
 	}
 	if req.PIN == "" {
@@ -69,4 +82,10 @@ func LoginUser(req LoginUserRequest) (string, string, error) {
 		return token, userId, utils.HandleError("LoginUser", "Failed to create token", err)
 	}
 	return token, userId, nil
+}
+
+func GetUserByApiKey(apiKey string) (models.User, error) {
+	var user models.User
+	err := db.StorageDB.Where("api_key = ?", apiKey).First(&user).Error
+	return user, err
 }

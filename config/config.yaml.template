@@ -1,0 +1,15 @@
+mode: dev
+logs_dir: logs
+storage_db_file: storage.db
+secret_key: your_secret_key_here
+bot_token: your_bot_token_here
+admin_account_pin: admin_pin_here
+uploads_dir: uploads
+backend_config:
+  base_url: localhost
+  port: 8000
+  scheme: http
+frontend_config:
+  base_url: localhost
+  port: 8001
+  scheme: http

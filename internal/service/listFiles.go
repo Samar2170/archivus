@@ -9,10 +9,30 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
+
+	"github.com/google/uuid"
 )
 
-func GetFiles(userId, search, orderBy, ordering, pageNo string) ([]models.FileMetadata, error) {
-	var files []models.FileMetadata
+type FileMetadataResponse struct {
+	ID       uint      `gorm:"primaryKey"`
+	Name     string    `gorm:"index"`
+	FilePath string    `gorm:"index"`
+	UserID   uuid.UUID `gorm:"index"`
+	SizeInMb float64
+	IsPublic bool
+
+	Tags []models.Tags `gorm:"many2many:file_metadata_tags;"`
+
+	IsImage                    bool
+	CompressedVersionAvailable bool `gorm:"default:false"`
+
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+func GetFiles(userId, search, orderBy, ordering, pageNo string) ([]FileMetadataResponse, error) {
+	var files []FileMetadataResponse
 	query := db.StorageDB.Model(&models.FileMetadata{}).Where("user_id = ?", userId)
 	if search != "" {
 		query = query.Where("name LIKE ?", "%"+search+"%")

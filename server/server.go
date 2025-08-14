@@ -25,20 +25,18 @@ func GetServer(testEnv bool) *http.Server {
 
 	logger := logging.AuditLogger
 	mux := mux.NewRouter()
-	healthCheckHandler := http.HandlerFunc(HealthCheck)
-	getFilesHandler := http.HandlerFunc(GetFilesHandler)
-	getSignedUrlHandler := http.HandlerFunc(GetSignedUrlHandler)
-	downloadHandler := http.HandlerFunc(DownloadFileHandler)
-	uploadFilesHandler := http.HandlerFunc(UploadFilesHandler)
 
 	mux.HandleFunc("/login/", Login).Methods("POST")
-	mux.HandleFunc("/health-check/", healthCheckHandler)
-	mux.HandleFunc("/files/get/", getFilesHandler)
-	mux.HandleFunc("/files/get-signed-url/{filepath:.*}", getSignedUrlHandler)
-	mux.HandleFunc("/files/download/{filepath:.*}", downloadHandler)
+	mux.HandleFunc("/health-check/", HealthCheck)
+
+	mux.HandleFunc("/files/list/", GetFilesHandler)
+	mux.HandleFunc("/files/get/", GetFilesByFolder)
+	mux.HandleFunc("/files/get-signed-url/{filepath:.*}", GetSignedUrlHandler)
+	mux.HandleFunc("/files/download/{filepath:.*}", DownloadFileHandler)
+
 	mux.HandleFunc("/folder/add/", CreateFolderHandler).Methods("POST")
 
-	mux.HandleFunc("/files/upload/", uploadFilesHandler).Methods("POST")
+	mux.HandleFunc("/files/upload/", UploadFilesHandler).Methods("POST")
 
 	logMiddleware := logging.NewLogMiddleware(&logger)
 	mux.Use(logMiddleware.Func())

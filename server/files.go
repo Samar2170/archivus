@@ -34,7 +34,7 @@ func GetFilesHandler(w http.ResponseWriter, r *http.Request) {
 	search := r.URL.Query().Get("search")
 	orderBy, ordering := orderingHelper(orderBy)
 
-	files, err := service.GetFiles(userId, search, orderBy, ordering, pageNo)
+	files, err := service.FindFiles(userId, search, orderBy, ordering, pageNo)
 	if err != nil {
 		logging.Errorlogger.Error().Msg(err.Error())
 		response.InternalServerErrorResponse(w, err.Error())
@@ -42,4 +42,22 @@ func GetFilesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	data := map[string]interface{}{"files": files}
 	response.JSONResponse(w, data)
+}
+
+func GetFilesByFolder(w http.ResponseWriter, r *http.Request) {
+	userId := r.Header.Get("userId")
+	folder := r.URL.Query().Get("folder")
+	files, folderSize, err := service.GetFiles(userId, folder)
+	if err != nil {
+		logging.Errorlogger.Error().Msg(err.Error())
+		response.InternalServerErrorResponse(w, err.Error())
+	}
+	// for _, file := range files {
+	// file.NavigationPath = fmt.Sprintf("http://%s/app/?folder=%s", config.GetFrontendAddr(), file.Path)
+	// }
+	response.JSONResponse(w, map[string]interface{}{
+		"files": files,
+		"size":  folderSize,
+	})
+
 }

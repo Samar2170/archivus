@@ -17,7 +17,7 @@ type User struct {
 	PIN      string    `gorm:"not null"` // Personal Identification Number for user authentication
 }
 
-func GetUserById(id uint) (User, error) {
+func GetUserById(id string) (User, error) {
 	var user User
 	err := db.StorageDB.Where("id = ?", id).First(&user).Error
 	return user, err

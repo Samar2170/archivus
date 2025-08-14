@@ -52,9 +52,9 @@ func GetOrCreateDir(userId uuid.UUID, name string, isMasterDir bool) Directory {
 	return dir
 }
 
-func GetDirByPathorName(path, name, username string) (Directory, error) {
+func GetDirByPathorName(path, name, userId string) (Directory, error) {
 	var dir Directory
-	err := db.StorageDB.Where("name = ? OR path = ?", name, path).Where("username = ? ", username).Find(&dir).Error
+	err := db.StorageDB.Where("name = ? OR path = ?", name, path).Where("user_id = ? ", userId).Find(&dir).Error
 	return dir, err
 
 }

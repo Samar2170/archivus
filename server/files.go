@@ -3,6 +3,7 @@ package server
 import (
 	"archivus/internal/service"
 	"archivus/pkg/logging"
+	reqhelpers "archivus/pkg/reqHelpers"
 	"archivus/pkg/response"
 	"net/http"
 )
@@ -60,4 +61,50 @@ func GetFilesByFolder(w http.ResponseWriter, r *http.Request) {
 		"size":  folderSize,
 	})
 
+}
+
+type MoveFileRequest struct {
+	FilePath string `json:"filePath"`
+	Folder   string `json:"folder"`
+}
+
+func MoveFileHandler(w http.ResponseWriter, r *http.Request) {
+	userId := r.Header.Get("userId")
+	var req MoveFileRequest
+	err := reqhelpers.DecodeRequest(r, &req)
+	if err != nil {
+		logging.Errorlogger.Error().Msg(err.Error())
+		response.BadRequestResponse(w, "Invalid request body")
+		return
+	}
+	err = service.MoveFile(userId, req.FilePath, req.Folder, false)
+	if err != nil {
+		logging.Errorlogger.Error().Msg(err.Error())
+		response.InternalServerErrorResponse(w, err.Error())
+		return
+	}
+	response.JSONResponse(w, map[string]interface{}{"message": "File moved successfully"})
+}
+
+type DeleteFileRequest struct {
+	FilePath string `json:"filePath"`
+}
+
+func DeleteFileHandler(w http.ResponseWriter, r *http.Request) {
+	userId := r.Header.Get("userId")
+	var req DeleteFileRequest
+	err := reqhelpers.DecodeRequest(r, &req)
+	if err != nil {
+		logging.Errorlogger.Error().Msg(err.Error())
+		response.BadRequestResponse(w, "Invalid request body")
+		return
+	}
+
+	err = service.DeleteFile(userId, req.FilePath)
+	if err != nil {
+		logging.Errorlogger.Error().Msg(err.Error())
+		response.InternalServerErrorResponse(w, err.Error())
+		return
+	}
+	response.JSONResponse(w, map[string]interface{}{"message": "File deleted successfully"})
 }

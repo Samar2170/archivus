@@ -152,17 +152,6 @@ func DownloadFile(filePath, signature, expiresAt string, compressed bool) ([]byt
 	return f, nil
 }
 
-type DirEntry struct {
-	Name      string
-	IsDir     bool
-	Extension string
-	SignedUrl string
-	Size      float64
-	Path      string
-
-	NavigationPath string
-}
-
 func GetSizeForDirEntry(file fs.DirEntry) float64 {
 	fi, err := file.Info()
 	if err != nil {

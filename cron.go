@@ -10,7 +10,7 @@ import (
 	"github.com/go-co-op/gocron"
 )
 
-func StartCronServer() {
+func startCronServer() {
 	t := time.Now()
 	logging.AuditLogger.Info().Msgf("Starting cron server at %s", t.Format(time.RFC3339))
 	s := gocron.NewScheduler(time.UTC)
@@ -30,5 +30,6 @@ func StartCronServer() {
 		helpers.UpdateDirsData()
 		helpers.UpdateUserDirsData()
 	})
+
 	s.StartBlocking()
 }

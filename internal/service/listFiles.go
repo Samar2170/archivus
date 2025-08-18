@@ -51,6 +51,18 @@ func FindFiles(userId, search, orderBy, ordering, pageNo string) ([]FileMetadata
 	return files, utils.HandleError("GetFiles", "Failed to get files for user", err)
 }
 
+type DirEntry struct {
+	ID        string
+	Name      string
+	IsDir     bool
+	Extension string
+	SignedUrl string
+	Size      float64
+	Path      string
+
+	NavigationPath string
+}
+
 func GetFiles(userId string, folder string) ([]DirEntry, float64, error) {
 	user, err := models.GetUserById(userId)
 	if err != nil {
@@ -81,9 +93,10 @@ func GetFiles(userId string, folder string) ([]DirEntry, float64, error) {
 		if err != nil {
 			signedUrl = ""
 		}
+
 		entries = append(entries, DirEntry{
 			Name:      file.Name(),
-			Path:      folder + "/" + file.Name(),
+			Path:      pathFromUploadsDir + "/" + file.Name(),
 			IsDir:     file.IsDir(),
 			Extension: filepath.Ext(file.Name()),
 			SignedUrl: backendAddr + "/files/download/" + signedUrl,

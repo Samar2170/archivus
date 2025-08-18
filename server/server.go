@@ -34,7 +34,10 @@ func GetServer(testEnv bool) *http.Server {
 	mux.HandleFunc("/files/get-signed-url/{filepath:.*}", GetSignedUrlHandler)
 	mux.HandleFunc("/files/download/{filepath:.*}", DownloadFileHandler)
 
+	mux.HandleFunc("/files/move/", MoveFileHandler).Methods("POST")
+	mux.HandleFunc("/files/delete/", DeleteFileHandler).Methods("POST")
 	mux.HandleFunc("/folder/add/", CreateFolderHandler).Methods("POST")
+	mux.HandleFunc("/folder/delete/", DeleteFolderHandler).Methods("POST")
 
 	mux.HandleFunc("/files/upload/", UploadFilesHandler).Methods("POST")
 

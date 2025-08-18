@@ -9,7 +9,6 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"time"
 )
 
 func getUserInput(prompt string) string {
@@ -68,12 +67,12 @@ func Run(args []string) {
 			server.RunServer()
 			wg.Done()
 		}()
-		wg.Add(1)
-		go func() {
-			time.Sleep(2 * time.Second) // Wait for server to start
-			StartCronServer()
-			wg.Done()
-		}()
+		// wg.Add(1)
+		// go func() {
+		// 	time.Sleep(2 * time.Second) // Wait for server to start
+		// 	startCronServer()
+		// 	wg.Done()
+		// }()
 		wg.Wait()
 	}
 }

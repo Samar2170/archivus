@@ -2,17 +2,36 @@ package service
 
 import (
 	"archivus/config"
-	"archivus/internal/auth"
 	"archivus/internal/db"
 	"archivus/internal/models"
 	"archivus/internal/utils"
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
+
+	"github.com/google/uuid"
 )
 
-func GetFiles(userId, search, orderBy, ordering, pageNo string) ([]models.FileMetadata, error) {
-	var files []models.FileMetadata
+type FileMetadataResponse struct {
+	ID       uint      `gorm:"primaryKey"`
+	Name     string    `gorm:"index"`
+	FilePath string    `gorm:"index"`
+	UserID   uuid.UUID `gorm:"index"`
+	SizeInMb float64
+	IsPublic bool
+
+	Tags []models.Tags `gorm:"many2many:file_metadata_tags;"`
+
+	IsImage                    bool
+	CompressedVersionAvailable bool `gorm:"default:false"`
+
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+func FindFiles(userId, search, orderBy, ordering, pageNo string) ([]FileMetadataResponse, error) {
+	var files []FileMetadataResponse
 	query := db.StorageDB.Model(&models.FileMetadata{}).Where("user_id = ?", userId)
 	if search != "" {
 		query = query.Where("name LIKE ?", "%"+search+"%")
@@ -32,8 +51,8 @@ func GetFiles(userId, search, orderBy, ordering, pageNo string) ([]models.FileMe
 	return files, utils.HandleError("GetFiles", "Failed to get files for user", err)
 }
 
-func FindFiles(apiKey string, folder string) ([]DirEntry, float64, error) {
-	user, err := auth.GetUserByApiKey(apiKey)
+func GetFiles(userId string, folder string) ([]DirEntry, float64, error) {
+	user, err := models.GetUserById(userId)
 	if err != nil {
 		return nil, 0, utils.HandleError("FindFiles", "Failed to get user by API key", err)
 	}
@@ -58,7 +77,7 @@ func FindFiles(apiKey string, folder string) ([]DirEntry, float64, error) {
 		backendAddr = fmt.Sprintf("%s://%s", config.GetBackendScheme(), config.GetBackendAddr())
 	}
 	for _, file := range files {
-		signedUrl, err := GetSignedUrl(pathFromUploadsDir+"/"+file.Name(), user.Username)
+		signedUrl, err := GetSignedUrl(pathFromUploadsDir+"/"+file.Name(), user.ID.String())
 		if err != nil {
 			signedUrl = ""
 		}
@@ -72,7 +91,7 @@ func FindFiles(apiKey string, folder string) ([]DirEntry, float64, error) {
 		})
 	}
 	var folderSize float64
-	folderData, err := models.GetDirByPathorName(pathFromUploadsDir, folder, user.Username)
+	folderData, err := models.GetDirByPathorName(pathFromUploadsDir, folder, user.ID.String())
 	if err == nil {
 		folderSize = folderData.SizeInMb
 	}

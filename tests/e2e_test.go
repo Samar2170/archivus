@@ -224,7 +224,7 @@ func TestUploadFiles(t *testing.T) {
 
 func TestListFiles(t *testing.T) {
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/files/get/", nil)
+	req := httptest.NewRequest("GET", "/files/list/", nil)
 	makeTestRequest(w, req, map[string]string{
 		"Authorization": "Bearer " + testToken,
 	})

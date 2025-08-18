@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archivus/migrator"
 	"archivus/server"
 	"archivus/shell"
 	"bufio"
@@ -51,6 +52,9 @@ func Run(args []string) {
 		case "setup":
 			// This command is used to set up the application.
 			log.Println("Setting up the application...")
+		case "migrate":
+			log.Println("Migrating the database...")
+			migrator.Migrate()
 		case "sync":
 			log.Println("Synchronizing the application with existing data...")
 		case "start":

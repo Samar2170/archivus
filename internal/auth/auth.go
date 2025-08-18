@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"archivus/config"
 	"archivus/internal/db"
 	"archivus/internal/helpers"
 	"archivus/internal/models"
@@ -16,7 +17,7 @@ func CreateUser(username, password, pin, email string) (string, string, error) {
 	}
 
 	// Generate API key
-	apiKey, err := utils.GenerateAPIKey(32)
+	apiKey, err := utils.GenerateAPIKey(config.ApiKeyLength)
 	if err != nil {
 		return "", "", utils.HandleError("CreateUser", "Failed to generate API key", err)
 	}

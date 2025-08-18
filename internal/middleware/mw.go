@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"archivus/config"
 	"archivus/internal/auth"
 	"archivus/pkg/response"
 )
@@ -65,8 +66,8 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			userId = user.ID.String()
 			username = user.Username
 		}
-		r.Header.Set("username", username)
-		r.Header.Set("userId", userId)
+		r.Header.Set(config.Username, username)
+		r.Header.Set(config.UserId, userId)
 		next.ServeHTTP(w, r)
 	})
 }

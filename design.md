@@ -7,8 +7,8 @@
 6. Get signed url [X]
 7. Download files [X]
 
-8. List Files/Folders
-9. Move files
-10. Delete files
-11. Move folder
+8. List Files/Folders [X]
+9. Move files  [X]
+10. Delete files [X]
+11. Move folder 
 12. Delete folder

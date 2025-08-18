@@ -65,7 +65,7 @@ func GetFilesByFolder(w http.ResponseWriter, r *http.Request) {
 
 type MoveFileRequest struct {
 	FilePath string `json:"filePath"`
-	Folder   string `json:"folder"`
+	Dst      string `json:"dst"`
 }
 
 func MoveFileHandler(w http.ResponseWriter, r *http.Request) {
@@ -77,7 +77,7 @@ func MoveFileHandler(w http.ResponseWriter, r *http.Request) {
 		response.BadRequestResponse(w, "Invalid request body")
 		return
 	}
-	err = service.MoveFile(userId, req.FilePath, req.Folder, false)
+	err = service.MoveFile(userId, req.FilePath, req.Dst, false)
 	if err != nil {
 		logging.Errorlogger.Error().Msg(err.Error())
 		response.InternalServerErrorResponse(w, err.Error())

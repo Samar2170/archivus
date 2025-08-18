@@ -37,6 +37,7 @@ func GetServer(testEnv bool) *http.Server {
 	mux.HandleFunc("/files/move/", MoveFileHandler).Methods("POST")
 	mux.HandleFunc("/files/delete/", DeleteFileHandler).Methods("POST")
 	mux.HandleFunc("/folder/add/", CreateFolderHandler).Methods("POST")
+	mux.HandleFunc("/folder/delete/", DeleteFolderHandler).Methods("POST")
 
 	mux.HandleFunc("/files/upload/", UploadFilesHandler).Methods("POST")
 

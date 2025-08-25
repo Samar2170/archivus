@@ -52,6 +52,7 @@ func GetFilesByFolder(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		logging.Errorlogger.Error().Msg(err.Error())
 		response.InternalServerErrorResponse(w, err.Error())
+		return
 	}
 	// for _, file := range files {
 	// file.NavigationPath = fmt.Sprintf("http://%s/app/?folder=%s", config.GetFrontendAddr(), file.Path)

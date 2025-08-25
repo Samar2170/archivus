@@ -14,4 +14,6 @@ config.yaml
 **/__test__dir__/**
 
 
+coverage.out
+
 uploads/**

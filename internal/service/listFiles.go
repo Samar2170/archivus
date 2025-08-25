@@ -108,5 +108,8 @@ func GetFiles(userId string, folder string) ([]DirEntry, float64, error) {
 	if err == nil {
 		folderSize = folderData.SizeInMb
 	}
+	if entries == nil {
+		entries = []DirEntry{}
+	}
 	return entries, folderSize, nil
 }

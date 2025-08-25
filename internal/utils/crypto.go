@@ -24,3 +24,18 @@ func HashString(input string) string {
 	hashedBytes := hash.Sum(nil)
 	return hex.EncodeToString(hashedBytes)
 }
+
+func GenerateRandomNumber(length int) (string, error) {
+	if length <= 0 {
+		return "", HandleError("GenerateRandomNumber", "Length must be greater than zero", nil)
+	}
+	num := make([]byte, length)
+	_, err := rand.Read(num)
+	if err != nil {
+		return "", HandleError("GenerateRandomNumber", "Failed to generate random bytes", err)
+	}
+	for i := 0; i < length; i++ {
+		num[i] = '0' + (num[i] % 10) // Convert to a digit
+	}
+	return string(num), nil
+}

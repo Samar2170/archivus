@@ -20,6 +20,7 @@ func init() {
 				allowedOrigins = append(allowedOrigins, fmt.Sprintf("http://192.168.%d.%d:%s", i, j, config.Config.FrontEndConfig.Port))
 			}
 		}
+		allowedOrigins = append(allowedOrigins, "http://localhost:3000")
 	}
 	logger := cors.Logger(&logging.AuditLogger)
 	CorsConfig = cors.New(cors.Options{

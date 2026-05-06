@@ -1,0 +1,6 @@
+default_write_access: true
+default_read_access: true
+logs_dir: "logs"
+secret_key: "JuRKdO6AMjn4aMybwaVA9H9CsWpyULQA"
+base_dir: "archivus"
+server_salt: "s0m3R4nd0mS4lt"

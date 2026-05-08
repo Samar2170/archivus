@@ -13,6 +13,12 @@ func (s *Store) GetUserByID(userID string) (models.User, error) {
 	return user, result.Error
 }
 
+func (s *Store) GetUserByUsername(username string) (models.User, error) {
+	var user models.User
+	result := s.conn().First(&user, "username = ?", username)
+	return user, result.Error
+}
+
 func (s *Store) CreateUser(user models.User) (models.User, error) {
 
 	result := s.conn().Create(&user)
@@ -32,4 +38,15 @@ func (s *Store) CreateDrive(name, ownerID, slug, absPath string) (models.Drive, 
 	}
 	result := s.conn().Create(&drive)
 	return drive, result.Error
+}
+
+func (s *Store) GetDriveByOwnerID(ownerID string) (models.Drive, error) {
+	var drive models.Drive
+	result := s.conn().First(&drive, "owner_id = ?", ownerID)
+	return drive, result.Error
+}
+
+func (s *Store) CreateUserInvite(invite models.UserInvite) (models.UserInvite, error) {
+	result := s.conn().Create(&invite)
+	return invite, result.Error
 }

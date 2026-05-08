@@ -6,6 +6,7 @@ import (
 	"archivus/internal/models"
 	dirmanager "archivus/internal/services/dirmanager"
 	"archivus/internal/store"
+	"archivus/pkg/utils"
 	"fmt"
 )
 
@@ -24,11 +25,14 @@ func (a *AuthService) CreateUser(username, password, pin, email string, isMaster
 		return models.User{}, fmt.Errorf("pin must be exactly %d digits long", archivus_constants.PINLength)
 	}
 
+	hashedPassword := utils.HashString(password)
+	hashedPIN := utils.HashString(pin)
+
 	writeAccess := isMaster || config.Config.DefaultWriteAccess
 	user := models.User{
 		Username:    username,
-		Password:    password,
-		PIN:         pin,
+		Password:    hashedPassword,
+		PIN:         hashedPIN,
 		Email:       email,
 		IsMaster:    isMaster,
 		WriteAccess: writeAccess,
@@ -59,4 +63,24 @@ func (a *AuthService) SetupNewDrive(name, userID string) (models.Drive, error) {
 	}
 
 	return drive, nil
+}
+
+func (a *AuthService) Login(username, password, pin string) (token string, err error) {
+	user, err := a.Store.GetUserByUsername(username)
+	if err != nil {
+		return "", fmt.Errorf("user not found: %w", err)
+	}
+	hashedPassword := utils.HashString(password)
+	if user.Password != "" && user.Password != hashedPassword {
+		return "", fmt.Errorf("invalid password")
+	}
+	hashedPIN := utils.HashString(pin)
+	if user.PIN != "" && user.PIN != hashedPIN {
+		return "", fmt.Errorf("invalid PIN")
+	}
+	token, err = createToken(user.ID.String(), user.Username)
+	if err != nil {
+		return "", fmt.Errorf("failed to create token: %w", err)
+	}
+	return token, nil
 }

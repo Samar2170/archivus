@@ -1,17 +1,15 @@
 package shell
 
 import (
-	"archivus/internal/config"
 	"archivus/internal/models"
-	dirmanager "archivus/internal/services/dirmanager"
-	"archivus/internal/store"
+	"archivus/internal/services/auth"
 	"fmt"
 	"log"
 	"strings"
 )
 
 type Shell struct {
-	Store *store.Store
+	AuthService *auth.AuthService
 }
 
 func (sh *Shell) NewMasterUser() (models.User, error) {
@@ -21,40 +19,28 @@ func (sh *Shell) NewMasterUser() (models.User, error) {
 	email := getUserInput("Enter email address: ", "")
 
 	fmt.Println("Creating new user...")
-	fmt.Println("Params:")
 	fmt.Printf("Username: %s\n", username)
 	fmt.Printf("Password: %s\n", strings.Repeat("*", len(password)))
 	fmt.Printf("Pin: %s\n", strings.Repeat("*", len(pin)))
 	fmt.Printf("Email: %s\n", email)
-	fmt.Printf("Please remember the password and pin")
+	fmt.Println("Please remember the password and pin")
 
-	user, err := sh.Store.CreateUser(username, password, pin, email, true)
-	if err != nil {
-		return models.User{}, fmt.Errorf("failed to create user: %w", err)
-	}
-	return user, nil
+	return sh.AuthService.CreateUser(username, password, pin, email, true)
 }
 
 func (sh *Shell) SetupDrive() {
-	config.Init()
 	user, err := sh.NewMasterUser()
 	if err != nil {
 		log.Fatalf("Error creating master user: %v", err)
 	}
 	fmt.Printf("Master user created with ID: %s\n", user.ID)
+
 	suggestedDriveName := fmt.Sprintf("%s's Drive", user.Username)
 	driveName := getUserInput("Enter your organization's name or press Enter to use the suggested drive name: ", suggestedDriveName)
-	slug, absPath, err := dirmanager.CreateDriveDir(driveName)
+
+	_, err = sh.AuthService.SetupNewDrive(driveName, user.ID.String())
 	if err != nil {
-		log.Fatalf("Error creating drive directory: %v", err)
-	}
-	_, err = sh.Store.SetupNewDrive(driveName, user.ID.String(), slug, absPath)
-	if err != nil {
-		err = dirmanager.DeleteDriveDir(driveName)
-		if err != nil {
-			log.Printf("Error cleaning up drive directory after failed database setup: %v", err)
-		}
-		log.Fatalf("Error creating drive in database: %v", err)
+		log.Fatalf("Error creating drive: %v", err)
 	}
 	fmt.Printf("Drive '%s' created successfully\n", driveName)
 }

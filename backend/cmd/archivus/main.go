@@ -2,6 +2,7 @@ package main
 
 import (
 	"archivus/internal/config"
+	"archivus/internal/services/auth"
 	"archivus/internal/store"
 	"archivus/shell"
 )
@@ -12,11 +13,10 @@ func main() {
 	}
 
 	s := store.Store{}
-	err := s.Init()
-	if err != nil {
+	if err := s.Init(); err != nil {
 		panic(err)
 	}
 
-	sh := shell.Shell{Store: &s}
+	sh := shell.Shell{AuthService: &auth.AuthService{Store: &s}}
 	sh.SetupDrive()
 }

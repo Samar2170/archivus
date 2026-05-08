@@ -11,6 +11,24 @@ import (
 
 type Store struct {
 	DB *gorm.DB
+	tx *gorm.DB
+}
+
+func (s *Store) conn() *gorm.DB {
+	if s.tx != nil {
+		return s.tx
+	}
+	return s.DB
+}
+
+func (s *Store) WithTx(tx *gorm.DB) *Store {
+	return &Store{DB: s.DB, tx: tx}
+}
+
+func (s *Store) Transaction(fn func(tx *Store) error) error {
+	return s.DB.Transaction(func(tx *gorm.DB) error {
+		return fn(s.WithTx(tx))
+	})
 }
 
 func getStorageDbFile(dbFile string) string {

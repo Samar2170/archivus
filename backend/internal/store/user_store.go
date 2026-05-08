@@ -1,56 +1,35 @@
 package store
 
 import (
-	"archivus/internal/config"
-	archivus_constants "archivus/internal/constants"
 	"archivus/internal/models"
 	"fmt"
+
+	"github.com/google/uuid"
 )
 
 func (s *Store) GetUserByID(userID string) (models.User, error) {
 	var user models.User
-	result := s.DB.First(&user, "id = ?", userID)
+	result := s.conn().First(&user, "id = ?", userID)
 	return user, result.Error
 }
 
-func (s *Store) CreateUser(username, password, pin, email string, isMaster bool) (models.User, error) {
-	if len(username) < 3 {
-		return models.User{}, fmt.Errorf("username must be at least 3 characters long")
-	}
-	if len(password) < archivus_constants.MinPasswordLength {
-		return models.User{}, fmt.Errorf("password must be at least %d characters long", archivus_constants.MinPasswordLength)
-	}
-	if len(pin) != archivus_constants.PINLength {
-		return models.User{}, fmt.Errorf("pin must be exactly %d digits long", archivus_constants.PINLength)
-	}
+func (s *Store) CreateUser(user models.User) (models.User, error) {
 
-	writeAccess := isMaster || config.Config.DefaultWriteAccess
-	user := models.User{
-		Username:    username,
-		Password:    password,
-		PIN:         pin,
-		Email:       email,
-		IsMaster:    isMaster,
-		WriteAccess: writeAccess,
-	}
-	result := s.DB.Create(&user)
+	result := s.conn().Create(&user)
 	return user, result.Error
 }
 
-func (s *Store) SetupNewDrive(name, userID, slug, absPath string) (models.Drive, error) {
-	user, err := s.GetUserByID(userID)
+func (s *Store) CreateDrive(name, ownerID, slug, absPath string) (models.Drive, error) {
+	id, err := uuid.Parse(ownerID)
 	if err != nil {
-		return models.Drive{}, err
+		return models.Drive{}, fmt.Errorf("invalid owner ID: %w", err)
 	}
-	if !user.IsMaster {
-		return models.Drive{}, fmt.Errorf("only master users can create drives")
-	}
-	d := models.Drive{
+	drive := models.Drive{
 		Name:    name,
-		OwnerID: user.ID,
+		OwnerID: id,
 		Slug:    slug,
 		AbsPath: absPath,
 	}
-	result := s.DB.Create(&d)
-	return d, result.Error
+	result := s.conn().Create(&drive)
+	return drive, result.Error
 }

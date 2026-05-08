@@ -1,7 +1,9 @@
 package shell
 
 import (
+	"archivus/internal/config"
 	"archivus/internal/models"
+	dirmanager "archivus/internal/services/dirmanager"
 	"archivus/internal/store"
 	"fmt"
 	"log"
@@ -34,6 +36,7 @@ func (sh *Shell) NewMasterUser() (models.User, error) {
 }
 
 func (sh *Shell) SetupDrive() {
+	config.Init()
 	user, err := sh.NewMasterUser()
 	if err != nil {
 		log.Fatalf("Error creating master user: %v", err)
@@ -41,10 +44,17 @@ func (sh *Shell) SetupDrive() {
 	fmt.Printf("Master user created with ID: %s\n", user.ID)
 	suggestedDriveName := fmt.Sprintf("%s's Drive", user.Username)
 	driveName := getUserInput("Enter your organization's name or press Enter to use the suggested drive name: ", suggestedDriveName)
-
-	err = sh.Store.SetupNewDrive(driveName, user.ID.String())
+	slug, absPath, err := dirmanager.CreateDriveDir(driveName)
 	if err != nil {
-		log.Fatalf("Error creating drive: %v", err)
+		log.Fatalf("Error creating drive directory: %v", err)
+	}
+	_, err = sh.Store.SetupNewDrive(driveName, user.ID.String(), slug, absPath)
+	if err != nil {
+		err = dirmanager.DeleteDriveDir(driveName)
+		if err != nil {
+			log.Printf("Error cleaning up drive directory after failed database setup: %v", err)
+		}
+		log.Fatalf("Error creating drive in database: %v", err)
 	}
 	fmt.Printf("Drive '%s' created successfully\n", driveName)
 }

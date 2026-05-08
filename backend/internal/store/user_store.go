@@ -5,9 +5,6 @@ import (
 	archivus_constants "archivus/internal/constants"
 	"archivus/internal/models"
 	"fmt"
-	"strings"
-
-	"github.com/google/uuid"
 )
 
 func (s *Store) GetUserByID(userID string) (models.User, error) {
@@ -40,26 +37,20 @@ func (s *Store) CreateUser(username, password, pin, email string, isMaster bool)
 	return user, result.Error
 }
 
-func (s *Store) SetupNewDrive(name, userID string) error {
+func (s *Store) SetupNewDrive(name, userID, slug, absPath string) (models.Drive, error) {
 	user, err := s.GetUserByID(userID)
 	if err != nil {
-		return err
+		return models.Drive{}, err
 	}
 	if !user.IsMaster {
-		return fmt.Errorf("only master users can create drives")
+		return models.Drive{}, fmt.Errorf("only master users can create drives")
 	}
 	d := models.Drive{
 		Name:    name,
 		OwnerID: user.ID,
-		Slug:    createSlug(name),
+		Slug:    slug,
+		AbsPath: absPath,
 	}
 	result := s.DB.Create(&d)
-	return result.Error
-}
-
-func createSlug(name string) string {
-	slug := strings.ReplaceAll(name, " ", "-")
-	slug = strings.ToLower(slug)
-	slug = fmt.Sprintf("%s-%s", slug, uuid.New().String()[:8])
-	return slug
+	return d, result.Error
 }

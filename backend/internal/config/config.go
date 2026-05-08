@@ -4,96 +4,103 @@ import (
 	archivus_constants "archivus/internal/constants"
 	"fmt"
 	"os"
+	"path/filepath"
+
+	"gopkg.in/yaml.v2"
 )
 
+// should be false in production
+var DEBUG = true
+
 type Configuration struct {
-	DefaultWriteAccess bool   `yaml:"default_write_access"` // default write access for users, if false, users will have read-only access by default
-	AllowUserDrive     bool   `yaml:"allow_user_drive"`     // allow users to have their own drive with write access, if false, users will not have their own drive and will have read-only access to the shared drive
+	DefaultWriteAccess bool   `yaml:"default_write_access"`
+	AllowUserDrive     bool   `yaml:"allow_user_drive"`
 	LogsDir            string `yaml:"logs_dir"`
 	SecretKey          string `yaml:"secret_key"`
-
-	BaseDir string `yaml:"base_dir"`
-	// AllowedOrigins  []string `yaml:"allowed_origins"`
-	ServerSalt      string `yaml:"server_salt"`
-	BackendProxyUrl string `yaml:"backend_proxy_url"`
+	ArchivusHome       string `yaml:"base_dir"`
+	ServerSalt         string `yaml:"server_salt"`
+	BackendProxyUrl    string `yaml:"backend_proxy_url"`
 }
 
-var Config *Configuration
+var (
+	Config         *Configuration
+	ProjectBaseDir string
+)
 
-func (c *Configuration) Print() {
-	fmt.Println("Configuration:")
-	fmt.Printf("  DefaultWriteAccess: %v\n", c.DefaultWriteAccess)
-	fmt.Printf("  LogsDir: %s\n", c.LogsDir)
-	fmt.Printf("  SecretKey: %s\n", c.SecretKey)
-	fmt.Printf("  BaseDir: %s\n", c.BaseDir)
-	fmt.Printf("  ServerSalt: %s\n", c.ServerSalt)
-	// fmt.Printf("  AllowedOrigins: %v\n", c.AllowedOrigins)
+// Init sets ProjectBaseDir, writes a default config if none exists, then loads
+// it into Config. Must be called before any other package that reads Config.
+func Init() error {
+	var homeDir string
+	var err error
 
-}
-
-var ProjectBaseDir string
-
-func setupConfig(mode string) {
-	if mode == "dev" {
-		// currentFile, err := os.Executable()
-		// if err != nil {
-		// 	panic(err)
-		// }
-		// ProjectBaseDir = filepath.Dir(currentFile)
-		ProjectBaseDir = "./"
+	if DEBUG {
+		homeDir, err = os.Getwd()
 	} else {
-		homeDir, err := os.UserHomeDir()
+		homeDir, err = os.UserHomeDir()
+	}
+
+	if err != nil {
+		return fmt.Errorf("get home dir: %w", err)
+	}
+
+	ProjectBaseDir = filepath.Join(homeDir, archivus_constants.SettingsDir)
+	if err := os.MkdirAll(ProjectBaseDir, os.ModePerm); err != nil {
+		return fmt.Errorf("create config dir: %w", err)
+	}
+
+	configPath := filepath.Join(ProjectBaseDir, archivus_constants.ConfigFileName)
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		cfg, err := newDefault(homeDir)
 		if err != nil {
-			panic(err)
+			return fmt.Errorf("build default config: %w", err)
 		}
-		ProjectBaseDir = homeDir + "/" + archivus_constants.SettingsDir
-		err = os.MkdirAll(ProjectBaseDir, os.ModePerm)
-		if err != nil {
-			panic(err)
+		if err := save(cfg, configPath); err != nil {
+			return fmt.Errorf("write default config: %w", err)
 		}
 	}
 
+	Config, err = load(configPath)
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+	return nil
+}
+
+func newDefault(homeDir string) (*Configuration, error) {
 	sk, err := generateRandomAlphaNumericString(32)
 	if err != nil {
-		panic("Failed to generate secret key: " + err.Error())
+		return nil, err
 	}
 	ss, err := generateRandomAlphaNumericString(16)
 	if err != nil {
-		panic("Failed to generate server salt: " + err.Error())
+		return nil, err
 	}
-	configuration := &Configuration{
+	return &Configuration{
 		DefaultWriteAccess: true,
 		AllowUserDrive:     true,
 		LogsDir:            "logs",
 		SecretKey:          sk,
-		BaseDir:            "archivus",
+		ArchivusHome:       filepath.Join(homeDir, "archivus"),
 		ServerSalt:         ss,
-	}
-	saveConfig(configuration)
+	}, nil
 }
 
-func saveConfig(config *Configuration) error {
-	configFilePath := ProjectBaseDir + "/" + archivus_constants.ConfigFileName
-	err := os.WriteFile(configFilePath, []byte(fmt.Sprintf("default_write_access: %v\nlogs_dir: %s\nsecret_key: %s\nbase_dir: %s\nserver_salt: %s\nallowed_origins:\n%s\nbackend_proxy_url: %s\n",
-		config.DefaultWriteAccess,
-		config.LogsDir,
-		config.SecretKey,
-		config.BaseDir,
-		config.ServerSalt,
-		config.BackendProxyUrl,
-	)), 0644)
-	return err
+func load(path string) (*Configuration, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var cfg Configuration
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, err
+	}
+	return &cfg, nil
 }
 
-func CheckConfig() error {
-	configFilePath := ProjectBaseDir + "/" + archivus_constants.ConfigFileName
-	_, err := os.Stat(configFilePath)
-	if os.IsNotExist(err) {
-		fmt.Println("Config file not found, creating default config...")
-		setupConfig("prod")
-		return nil
-	} else if err != nil {
-		return fmt.Errorf("error checking config file: %v", err)
+func save(cfg *Configuration, path string) error {
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return err
 	}
-	return nil
+	return os.WriteFile(path, data, 0644)
 }

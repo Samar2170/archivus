@@ -85,7 +85,7 @@ func newDefault(homeDir string) (*Configuration, error) {
 		return nil, fmt.Errorf("create logs dir: %w", err)
 	}
 	return &Configuration{
-		DefaultWriteAccess: true,
+		DefaultWriteAccess: false,
 		AllowUserDrive:     true,
 		LogsDir:            logsDir,
 		SecretKey:          sk,

@@ -28,7 +28,12 @@ func (a *AuthService) CreateUser(username, password, pin, email string, isMaster
 	hashedPassword := utils.HashString(password)
 	hashedPIN := utils.HashString(pin)
 
-	writeAccess := isMaster || config.Config.DefaultWriteAccess
+	var writeAccess bool
+	if isMaster {
+		writeAccess = true
+	} else {
+		writeAccess = config.Config.DefaultWriteAccess
+	}
 	user := models.User{
 		Username:    username,
 		Password:    hashedPassword,

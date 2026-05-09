@@ -97,3 +97,24 @@ func (h *AuthHandler) InviteUser(w http.ResponseWriter, r *http.Request) {
 
 	response.JSONResponse(w, map[string]string{"invite_code": inviteCode})
 }
+
+func (h *AuthHandler) RemoveUserFromDrive(w http.ResponseWriter, r *http.Request) {
+	type removeUserRequest struct {
+		UserID    string `json:"user_id"`
+		DriveID   string `json:"drive_id"`
+		Username  string `json:"username"`
+		DriveSlug string `json:"drive_slug"`
+	}
+	var req removeUserRequest
+	if err := reqhelpers.DecodeRequest(r, &req); err != nil {
+		response.BadRequestResponse(w, err.Error())
+		return
+	}
+
+	if err := h.service.RemoveUserFromDrive(req.UserID, req.DriveID, req.Username, req.DriveSlug); err != nil {
+		response.BadRequestResponse(w, err.Error())
+		return
+	}
+
+	response.JSONResponse(w, map[string]string{"message": "user removed from drive"})
+}

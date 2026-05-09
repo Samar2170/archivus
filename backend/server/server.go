@@ -24,6 +24,7 @@ func GetServer(authService *auth.AuthService) *http.Server {
 	protected := router.NewRoute().Subrouter()
 	protected.Use(AuthMiddleware)
 	protected.HandleFunc("/auth/invite", authHandler.InviteUser).Methods(http.MethodPost)
+	protected.HandleFunc("/auth/remove", authHandler.RemoveUserFromDrive).Methods(http.MethodPost)
 
 	return &http.Server{Handler: router, Addr: ":8080"}
 }

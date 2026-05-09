@@ -75,12 +75,21 @@ func newDefault(homeDir string) (*Configuration, error) {
 	if err != nil {
 		return nil, err
 	}
+	// make archivus home dir if not exists
+	archivusHome := filepath.Join(homeDir, "archivus")
+	if err := os.MkdirAll(archivusHome, os.ModePerm); err != nil {
+		return nil, fmt.Errorf("create archivus home dir: %w", err)
+	}
+	logsDir := filepath.Join(ProjectBaseDir, "logs")
+	if err := os.MkdirAll(logsDir, os.ModePerm); err != nil {
+		return nil, fmt.Errorf("create logs dir: %w", err)
+	}
 	return &Configuration{
 		DefaultWriteAccess: true,
 		AllowUserDrive:     true,
-		LogsDir:            "logs",
+		LogsDir:            logsDir,
 		SecretKey:          sk,
-		ArchivusHome:       filepath.Join(homeDir, "archivus"),
+		ArchivusHome:       archivusHome,
 		ServerSalt:         ss,
 	}, nil
 }

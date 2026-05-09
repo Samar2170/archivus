@@ -70,12 +70,15 @@ func (a *AuthService) Login(username, password, pin string) (token string, err e
 	if err != nil {
 		return "", fmt.Errorf("user not found: %w", err)
 	}
+	if password == "" && pin == "" {
+		return "", fmt.Errorf("password or PIN required")
+	}
 	hashedPassword := utils.HashString(password)
-	if user.Password != "" && user.Password != hashedPassword {
+	if password != "" && user.Password != hashedPassword {
 		return "", fmt.Errorf("invalid password")
 	}
 	hashedPIN := utils.HashString(pin)
-	if user.PIN != "" && user.PIN != hashedPIN {
+	if pin != "" && user.PIN != hashedPIN {
 		return "", fmt.Errorf("invalid PIN")
 	}
 	token, err = createToken(user.ID.String(), user.Username)

@@ -15,6 +15,13 @@ type AuthService struct {
 }
 
 func (a *AuthService) CreateUser(username, password, pin, email string, isMaster bool) (models.User, error) {
+	var user models.User
+	var err error
+
+	user, err = a.Store.GetUserByUsername(username)
+	if err == nil {
+		return models.User{}, fmt.Errorf("username already exists")
+	}
 	if len(username) < 3 {
 		return models.User{}, fmt.Errorf("username must be at least 3 characters long")
 	}
@@ -34,7 +41,7 @@ func (a *AuthService) CreateUser(username, password, pin, email string, isMaster
 	} else {
 		writeAccess = config.Config.DefaultWriteAccess
 	}
-	user := models.User{
+	user = models.User{
 		Username:    username,
 		Password:    hashedPassword,
 		PIN:         hashedPIN,

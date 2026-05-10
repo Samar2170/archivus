@@ -40,6 +40,12 @@ func (s *Store) GetDriveBySlug(slug string) (models.Drive, error) {
 	return drive, result.Error
 }
 
+func (s *Store) GetDriveByIDOrSlug(idOrSlug string) (models.Drive, error) {
+	var drive models.Drive
+	result := s.conn().First(&drive, "id = ? OR slug = ?", idOrSlug, idOrSlug)
+	return drive, result.Error
+}
+
 func (s *Store) AddUserToDrive(userID, driveID string) error {
 	userIDParsed, err := uuid.Parse(userID)
 	if err != nil {
@@ -49,12 +55,10 @@ func (s *Store) AddUserToDrive(userID, driveID string) error {
 	if err != nil {
 		return fmt.Errorf("invalid drive ID: %w", err)
 	}
-	drive, err := s.GetDriveByID(driveIDParsed.String())
-	if err != nil {
-		return fmt.Errorf("drive not found: %w", err)
-	}
-	user := models.User{ID: userIDParsed}
-	return s.conn().Model(&drive).Association("Users").Append(&user)
+	return s.conn().Exec(
+		"INSERT OR IGNORE INTO drive_users (drive_id, user_id) VALUES (?, ?)",
+		driveIDParsed, userIDParsed,
+	).Error
 }
 
 func (s *Store) GetUsersByDriveID(driveID string) ([]models.User, error) {
@@ -70,25 +74,35 @@ func (s *Store) GetUsersByDriveID(driveID string) ([]models.User, error) {
 	return drive.Users, nil
 }
 
-// func (s *Store) CheckIfUserInDrive(userID, driveID string) (bool, error) {
-// }
+func (s *Store) CheckIfUserInDrive(userID, driveID string) (bool, error) {
+	userIDParsed, err := uuid.Parse(userID)
+	if err != nil {
+		return false, fmt.Errorf("invalid user ID: %w", err)
+	}
+	driveIDParsed, err := uuid.Parse(driveID)
+	if err != nil {
+		return false, fmt.Errorf("invalid drive ID: %w", err)
+	}
+	var count int64
+	result := s.conn().Table("drive_users").
+		Where("drive_id = ? AND user_id = ?", driveIDParsed, userIDParsed).
+		Count(&count)
+	return count > 0, result.Error
+}
 
 func (s *Store) RemoveUserFromDrive(userID, driveID string) error {
-	var user models.User
-	var err error
-	user, err = s.GetUserByID(userID)
+	userIDParsed, err := uuid.Parse(userID)
 	if err != nil {
-		return fmt.Errorf("invalid user ID or username: %w", err)
+		return fmt.Errorf("invalid user ID: %w", err)
 	}
 	driveIDParsed, err := uuid.Parse(driveID)
 	if err != nil {
 		return fmt.Errorf("invalid drive ID: %w", err)
 	}
-	drive, err := s.GetDriveByID(driveIDParsed.String())
-	if err != nil {
-		return fmt.Errorf("drive not found: %w", err)
-	}
-	return s.conn().Model(&drive).Association("Users").Delete(&user)
+	return s.conn().Exec(
+		"DELETE FROM drive_users WHERE drive_id = ? AND user_id = ?",
+		driveIDParsed, userIDParsed,
+	).Error
 }
 
 func (s *Store) CreateDirectoryMetadata(name, absPath, driveID string) (models.DirectoryMetadata, error) {
@@ -136,4 +150,14 @@ func (s *Store) GetFileMetadataByID(id int64) (models.FileMetadata, error) {
 	var fileMetadata models.FileMetadata
 	result := s.conn().First(&fileMetadata, "id = ?", id)
 	return fileMetadata, result.Error
+}
+
+func (s *Store) ResolveDriveBySlugOrID(slug, driveId string) (models.Drive, error) {
+	if driveId != "" {
+		return s.GetDriveByID(driveId)
+	}
+	if slug != "" {
+		return s.GetDriveBySlug(slug)
+	}
+	return models.Drive{}, fmt.Errorf("either drive slug or drive ID must be provided")
 }

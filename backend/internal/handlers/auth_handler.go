@@ -64,7 +64,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.service.AddUserToDrive(user.ID.String(), invite.DriveID.String()); err != nil {
+	if err := h.service.AddUserToDrive(user.ID.String(), invite.DriveID.String(), "", ""); err != nil {
 		response.BadRequestResponse(w, err.Error())
 		return
 	}
@@ -117,4 +117,25 @@ func (h *AuthHandler) RemoveUserFromDrive(w http.ResponseWriter, r *http.Request
 	}
 
 	response.JSONResponse(w, map[string]string{"message": "user removed from drive"})
+}
+
+func (h *AuthHandler) AddUserToDrive(w http.ResponseWriter, r *http.Request) {
+	type addUserRequest struct {
+		UserID    string `json:"user_id"`
+		DriveID   string `json:"drive_id"`
+		Username  string `json:"username"`
+		DriveSlug string `json:"drive_slug"`
+	}
+	var req addUserRequest
+	if err := reqhelpers.DecodeRequest(r, &req); err != nil {
+		response.BadRequestResponse(w, err.Error())
+		return
+	}
+
+	if err := h.service.AddUserToDrive(req.UserID, req.DriveID, req.Username, req.DriveSlug); err != nil {
+		response.BadRequestResponse(w, err.Error())
+		return
+	}
+
+	response.JSONResponse(w, map[string]string{"message": "user added to drive"})
 }

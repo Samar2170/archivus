@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"archivus/internal/config"
 	archivus_constants "archivus/internal/constants"
 	"archivus/internal/models"
 	dirmanager "archivus/internal/services/dirmanager"
@@ -11,7 +10,10 @@ import (
 )
 
 type AuthService struct {
-	Store *store.Store
+	Store              *store.Store
+	DirManager         *dirmanager.DirManager
+	DefaultWriteAccess bool
+	SecretKey          string
 }
 
 func (a *AuthService) CreateUser(username, password, pin, email string, isMaster bool) (models.User, error) {
@@ -39,7 +41,7 @@ func (a *AuthService) CreateUser(username, password, pin, email string, isMaster
 	if isMaster {
 		writeAccess = true
 	} else {
-		writeAccess = config.Config.DefaultWriteAccess
+		writeAccess = a.DefaultWriteAccess
 	}
 	user = models.User{
 		Username:    username,
@@ -61,14 +63,14 @@ func (a *AuthService) SetupNewDrive(name, userID string) (models.Drive, error) {
 		return models.Drive{}, fmt.Errorf("only master users can create drives")
 	}
 
-	slug, absPath, err := dirmanager.CreateDriveDir(name)
+	slug, absPath, err := a.DirManager.CreateDriveDir(name)
 	if err != nil {
 		return models.Drive{}, err
 	}
 
 	drive, err := a.Store.CreateDrive(name, userID, slug, absPath)
 	if err != nil {
-		if cleanupErr := dirmanager.DeleteDriveDir(name); cleanupErr != nil {
+		if cleanupErr := a.DirManager.DeleteDriveDir(name); cleanupErr != nil {
 			fmt.Printf("warning: failed to clean up drive directory after db error: %v\n", cleanupErr)
 		}
 		return models.Drive{}, err
@@ -93,7 +95,7 @@ func (a *AuthService) Login(username, password, pin string) (token string, err e
 	if pin != "" && user.PIN != hashedPIN {
 		return "", fmt.Errorf("invalid PIN")
 	}
-	token, err = createToken(user.ID.String(), user.Username)
+	token, err = a.createToken(user.ID.String(), user.Username)
 	if err != nil {
 		return "", fmt.Errorf("failed to create token: %w", err)
 	}

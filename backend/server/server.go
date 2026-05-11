@@ -22,7 +22,7 @@ func GetServer(authService *auth.AuthService) *http.Server {
 	router.HandleFunc("/auth/register", authHandler.Register).Methods(http.MethodPost)
 
 	protected := router.NewRoute().Subrouter()
-	protected.Use(AuthMiddleware)
+	protected.Use(AuthMiddleware(authService))
 	protected.HandleFunc("/auth/drive/invite", authHandler.InviteUser).Methods(http.MethodPost)
 	protected.HandleFunc("/auth/drive/remove", authHandler.RemoveUserFromDrive).Methods(http.MethodPost)
 	protected.HandleFunc("/auth/drive/add", authHandler.AddUserToDrive).Methods(http.MethodPost)

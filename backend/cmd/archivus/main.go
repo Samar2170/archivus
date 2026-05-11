@@ -2,8 +2,8 @@ package main
 
 import (
 	"archivus/internal/config"
-	"archivus/internal/models"
 	"archivus/internal/services/auth"
+	"archivus/internal/services/dirmanager"
 	"archivus/internal/store"
 	"archivus/server"
 	"archivus/shell"
@@ -12,26 +12,17 @@ import (
 	"github.com/akamensky/argparse"
 )
 
-func getStore() (*store.Store, error) {
-	s := &store.Store{}
-	if err := s.Init(); err != nil {
-		return nil, err
-	}
-	if err := s.Migrate(models.User{}, models.Drive{}, models.UserInvite{}); err != nil {
-		return nil, err
-	}
-	return s, nil
-}
-
 func main() {
 	if err := config.Init(); err != nil {
 		panic(err)
 	}
 
-	s, err := getStore()
+	s, err := store.GetStore(config.ProjectBaseDir)
 	if err != nil {
 		panic(err)
 	}
+	dm := dirmanager.DirManager{Home: config.Config.ArchivusHome, Store: s, UsersHome: config.UsersDir}
+
 	parser := argparse.NewParser("archivus-v2", "A simple file archiver")
 	serverCmd := parser.NewCommand("server", "Run the archivus server")
 	setupDriveCmd := parser.NewCommand("setup-drive", "Set up the drive for the current user")
@@ -44,7 +35,9 @@ func main() {
 
 	switch {
 	case serverCmd.Happened():
-		as := auth.AuthService{Store: s}
+		as := auth.AuthService{Store: s, DirManager: &dm,
+			DefaultWriteAccess: config.Config.DefaultWriteAccess,
+			SecretKey:          config.Config.SecretKey}
 		server := server.GetServer(&as)
 		if err := server.ListenAndServe(); err != nil {
 			panic(err)

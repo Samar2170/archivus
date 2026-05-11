@@ -25,6 +25,7 @@ type Configuration struct {
 var (
 	Config         *Configuration
 	ProjectBaseDir string
+	UsersDir       string
 )
 
 // Init sets ProjectBaseDir, writes a default config if none exists, then loads
@@ -62,6 +63,10 @@ func Init() error {
 	Config, err = load(configPath)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
+	}
+	UsersDir = filepath.Join(Config.ArchivusHome, "users")
+	if err := os.MkdirAll(UsersDir, os.ModePerm); err != nil {
+		return fmt.Errorf("create users dir: %w", err)
 	}
 	return nil
 }

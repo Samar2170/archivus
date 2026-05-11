@@ -1,8 +1,8 @@
 package store
 
 import (
-	"archivus/internal/config"
 	archivus_constants "archivus/internal/constants"
+	"archivus/internal/models"
 	"path/filepath"
 
 	"gorm.io/driver/sqlite"
@@ -10,8 +10,20 @@ import (
 )
 
 type Store struct {
-	DB *gorm.DB
-	tx *gorm.DB
+	DB             *gorm.DB
+	tx             *gorm.DB
+	ProjectBaseDir string
+}
+
+func GetStore(projectBaseDir string) (*Store, error) {
+	s := &Store{ProjectBaseDir: projectBaseDir}
+	if err := s.Init(); err != nil {
+		return nil, err
+	}
+	if err := s.Migrate(models.User{}, models.Drive{}, models.UserInvite{}); err != nil {
+		return nil, err
+	}
+	return s, nil
 }
 
 func (s *Store) conn() *gorm.DB {
@@ -31,12 +43,12 @@ func (s *Store) Transaction(fn func(tx *Store) error) error {
 	})
 }
 
-func getStorageDbFile(dbFile string) string {
-	return filepath.Join(config.ProjectBaseDir, dbFile)
+func (s *Store) getStorageDbFile(dbFile string) string {
+	return filepath.Join(s.ProjectBaseDir, dbFile)
 }
 
 func (s *Store) Init() error {
-	dbFile := getStorageDbFile(archivus_constants.StorageDbFile)
+	dbFile := s.getStorageDbFile(archivus_constants.StorageDbFile)
 	db, err := gorm.Open(sqlite.Open(dbFile), &gorm.Config{})
 	if err != nil {
 		return err

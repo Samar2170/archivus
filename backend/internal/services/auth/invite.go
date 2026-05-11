@@ -2,6 +2,7 @@ package auth
 
 import (
 	"archivus/internal/models"
+	"archivus/internal/store"
 	"archivus/pkg/utils"
 	"fmt"
 	"time"
@@ -11,10 +12,14 @@ func (a *AuthService) InviteUser(user models.User) (string, error) {
 	if !user.IsMaster {
 		return "", fmt.Errorf("only master users can invite other users")
 	}
-	drive, err := a.Store.GetDriveByOwnerID(user.ID.String())
+	drives, err := a.Store.GetDriveByOwnerID(user.ID.String())
 	if err != nil {
 		return "", fmt.Errorf("failed to get drive for user: %w", err)
 	}
+	if len(drives) == 0 {
+		return "", fmt.Errorf("no drive found for user")
+	}
+	drive := drives[0]
 	inviteCode, err := utils.GenerateRandomAlphaNumericString(16)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate invite code: %w", err)
@@ -70,4 +75,69 @@ func (a *AuthService) RemoveUserFromDrive(userID, driveID, username, driveSlug s
 		return fmt.Errorf("invalid drive: %w", err)
 	}
 	return a.Store.RemoveUserFromDrive(user.ID.String(), drive.ID.String())
+}
+
+type UsersInDriveResponse struct {
+	Drive models.Drive  `json:"drive"`
+	Users []models.User `json:"users"`
+}
+
+func (a *AuthService) GetUsersInDrive(userId string) ([]UsersInDriveResponse, error) {
+	user, err := a.Store.GetUserByID(userId)
+	if err != nil {
+		return nil, fmt.Errorf("user not found: %w", err)
+	}
+	if !user.IsMaster {
+		return nil, fmt.Errorf("only master users can view users in drive")
+	}
+	drives, err := a.Store.GetDriveByOwnerID(user.ID.String())
+	if err != nil {
+		return nil, fmt.Errorf("failed to get drive for user: %w", err)
+	}
+	if len(drives) == 0 {
+		return nil, fmt.Errorf("no drive found for user")
+	}
+	var driveUserResponses []UsersInDriveResponse
+	for _, drive := range drives {
+		users, err := a.Store.GetUsersByDriveID(drives[0].ID.String())
+		if err != nil {
+			return nil, fmt.Errorf("failed to get users in drive: %w", err)
+		}
+		driveUserResponses = append(driveUserResponses, UsersInDriveResponse{
+			Drive: drive,
+			Users: users,
+		})
+	}
+
+	return driveUserResponses, nil
+}
+
+type UserInfoResponse struct {
+	User        models.User    `json:"user"`
+	Drives      []models.Drive `json:"drives"`
+	OwnedDrives []models.Drive `json:"owned_drives"`
+}
+
+func (h *AuthService) GetUserInfo(userID string) (UserInfoResponse, error) {
+	user, err := h.Store.GetUserByID(userID)
+	if err != nil {
+		return UserInfoResponse{}, fmt.Errorf("user not found: %w", err)
+	}
+	drives, err := h.Store.GetDriveByUserID(user.ID.String())
+	if err != nil {
+		if err != store.ErrRecordNotFound {
+			return UserInfoResponse{}, fmt.Errorf("failed to get drives for user: %w", err)
+		}
+	}
+	ownedDrives, err := h.Store.GetDriveByOwnerID(user.ID.String())
+	if err != nil {
+		if err != store.ErrRecordNotFound {
+			return UserInfoResponse{}, fmt.Errorf("failed to get owned drives for user: %w", err)
+		}
+	}
+	return UserInfoResponse{
+		User:        user,
+		Drives:      drives,
+		OwnedDrives: ownedDrives,
+	}, nil
 }

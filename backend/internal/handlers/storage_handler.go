@@ -5,7 +5,10 @@ import (
 	"archivus/internal/services/storagemanager"
 	reqhelpers "archivus/pkg/reqHelpers"
 	"archivus/pkg/response"
+	"fmt"
 	"net/http"
+	"strconv"
+	"time"
 )
 
 type StorageHandler struct {
@@ -95,6 +98,56 @@ func (h *StorageHandler) UploadFileHandler(w http.ResponseWriter, r *http.Reques
 		}
 	}
 	response.JSONResponse(w, map[string]string{"message": "files uploaded successfully"})
+}
+
+func (h *StorageHandler) MoveFileHandler(w http.ResponseWriter, r *http.Request) {
+	type moveFileRequest struct {
+		SrcPath string `json:"srcPath"`
+		DstPath string `json:"dstPath"`
+		DriveId string `json:"driveId"`
+	}
+	var req moveFileRequest
+	if err := reqhelpers.DecodeRequest(r, &req); err != nil {
+		response.BadRequestResponse(w, err.Error())
+		return
+	}
+	userID, ok := r.Context().Value(archivus_constants.ContextKey(archivus_constants.UserIdKey)).(string)
+	if !ok {
+		response.UnauthorizedResponse(w, "user ID not found in context")
+		return
+	}
+	if err := h.service.MoveFile(req.SrcPath, req.DstPath, req.DriveId, userID); err != nil {
+		response.BadRequestResponse(w, err.Error())
+		return
+	}
+	response.JSONResponse(w, map[string]string{"message": "file moved successfully"})
+}
+
+func (h *StorageHandler) DownloadFileHandler(w http.ResponseWriter, r *http.Request) {
+	fileIdStr := r.URL.Query().Get("fileId")
+	driveId := r.URL.Query().Get("driveId")
+
+	fileId, err := strconv.ParseInt(fileIdStr, 10, 64)
+	if err != nil {
+		response.BadRequestResponse(w, "invalid file ID")
+		return
+	}
+	userID, ok := r.Context().Value(archivus_constants.ContextKey(archivus_constants.UserIdKey)).(string)
+	if !ok {
+		response.UnauthorizedResponse(w, "user ID not found in context")
+		return
+	}
+
+	file, md, err := h.service.DownloadFile(fileId, driveId, userID)
+	if err != nil {
+		response.BadRequestResponse(w, err.Error())
+		return
+	}
+	defer file.Close()
+
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", md.Name))
+	w.Header().Set("Content-Type", "application/octet-stream")
+	http.ServeContent(w, r, md.Name, time.Time{}, file)
 }
 
 func (h *StorageHandler) GetFilesHandler(w http.ResponseWriter, r *http.Request) {

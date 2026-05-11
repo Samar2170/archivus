@@ -15,6 +15,10 @@ type Store struct {
 	ProjectBaseDir string
 }
 
+var (
+	ErrRecordNotFound = gorm.ErrRecordNotFound
+)
+
 func GetStore(projectBaseDir string) (*Store, error) {
 	s := &Store{ProjectBaseDir: projectBaseDir}
 	if err := s.Init(); err != nil {

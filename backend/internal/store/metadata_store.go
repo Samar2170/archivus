@@ -73,3 +73,18 @@ func (s *Store) ListFilesByRelPath(relPath string) ([]models.FileMetadata, error
 	}
 	return files, nil
 }
+
+func (s *Store) GetFileMetadataByRelPath(relPath string) (models.FileMetadata, error) {
+	var fileMetadata models.FileMetadata
+	result := s.conn().Where("rel_path = ?", relPath).First(&fileMetadata)
+	return fileMetadata, result.Error
+}
+
+func (s *Store) UpdateFileMetadataPaths(id int64, absPath, relPath, dirPath string) error {
+	result := s.conn().Model(&models.FileMetadata{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"abs_path": absPath,
+		"rel_path": relPath,
+		"dir_path": dirPath,
+	})
+	return result.Error
+}

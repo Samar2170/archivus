@@ -1,6 +1,7 @@
 package storagemanager
 
 import (
+	"archivus/internal/models"
 	"errors"
 	"fmt"
 	"io"
@@ -57,6 +58,64 @@ type DirEntry struct {
 	Thumbnail string
 
 	NavigationPath string
+}
+
+func (dm *StorageManager) MoveFile(srcRelPath, dstRelPath, driveId, userId string) error {
+	hasAccess, err := dm.checkUserDriveWriteAccess(userId, driveId)
+	if err != nil {
+		return err
+	}
+	if !hasAccess {
+		return errors.New("user does not have write access to this drive")
+	}
+	drive, err := dm.Store.GetDriveByID(driveId)
+	if err != nil {
+		return fmt.Errorf("storagemanager: get drive by id %q: %w", driveId, err)
+	}
+
+	srcAbs := filepath.Join(dm.Home, drive.Slug, srcRelPath)
+	dstAbs := filepath.Join(dm.Home, drive.Slug, dstRelPath)
+
+	md, err := dm.Store.GetFileMetadataByRelPath(filepath.Join(drive.Slug, srcRelPath))
+	if err != nil {
+		return fmt.Errorf("storagemanager: get file metadata for %q: %w", srcRelPath, err)
+	}
+
+	if err := os.Rename(srcAbs, dstAbs); err != nil {
+		return fmt.Errorf("storagemanager: move file %q to %q: %w", srcAbs, dstAbs, err)
+	}
+
+	newRelPath := filepath.Join(drive.Slug, dstRelPath)
+	newDirPath := filepath.Join(dm.Home, drive.Slug, filepath.Dir(dstRelPath))
+
+	if err := dm.Store.UpdateFileMetadataPaths(md.ID, dstAbs, newRelPath, newDirPath); err != nil {
+		if rerr := os.Rename(dstAbs, srcAbs); rerr != nil {
+			fmt.Printf("warning: failed to revert file move after db error: %v\n", rerr)
+		}
+		return fmt.Errorf("storagemanager: update file metadata after move: %w", err)
+	}
+	return nil
+}
+
+func (dm *StorageManager) DownloadFile(fileId int64, driveId, userId string) (*os.File, *models.FileMetadata, error) {
+	hasAccess, err := dm.checkUserHasDriveAccess(userId, driveId)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !hasAccess {
+		return nil, nil, errors.New("user does not have access to this drive")
+	}
+
+	md, err := dm.Store.GetFileMetadataByID(fileId)
+	if err != nil {
+		return nil, nil, fmt.Errorf("storagemanager: get file metadata by id %d: %w", fileId, err)
+	}
+
+	f, err := os.Open(md.AbsPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("storagemanager: open file %q: %w", md.AbsPath, err)
+	}
+	return f, &md, nil
 }
 
 func (dm *StorageManager) GetFiles(relPath, driveId, userId string) ([]DirEntry, error) {

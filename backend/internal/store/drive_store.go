@@ -22,10 +22,18 @@ func (s *Store) CreateDrive(name, ownerID, slug, absPath string) (models.Drive, 
 	return drive, result.Error
 }
 
-func (s *Store) GetDriveByOwnerID(ownerID string) (models.Drive, error) {
-	var drive models.Drive
-	result := s.conn().First(&drive, "owner_id = ?", ownerID)
-	return drive, result.Error
+func (s *Store) GetDriveByOwnerID(ownerID string) ([]models.Drive, error) {
+	var drives []models.Drive
+	result := s.conn().Find(&drives, "owner_id = ?", ownerID)
+	return drives, result.Error
+}
+
+func (s *Store) GetDriveByUserID(userID string) ([]models.Drive, error) {
+	var drives []models.Drive
+	result := s.conn().Joins("JOIN drive_users ON drive_users.drive_id = drives.id").
+		Where("drive_users.user_id = ?", userID).
+		Find(&drives)
+	return drives, result.Error
 }
 
 func (s *Store) GetDriveByID(driveID string) (models.Drive, error) {
@@ -84,6 +92,7 @@ func (s *Store) CheckIfUserInDrive(userID, driveID string) (bool, error) {
 		return false, fmt.Errorf("invalid drive ID: %w", err)
 	}
 	var count int64
+	fmt.Println(driveID, driveIDParsed, userID, userIDParsed)
 	result := s.conn().Table("drive_users").
 		Where("drive_id = ? AND user_id = ?", driveIDParsed, userIDParsed).
 		Count(&count)

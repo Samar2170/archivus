@@ -139,3 +139,23 @@ func (h *AuthHandler) AddUserToDrive(w http.ResponseWriter, r *http.Request) {
 
 	response.JSONResponse(w, map[string]string{"message": "user added to drive"})
 }
+
+func (h *AuthHandler) GetUsersInDrive(w http.ResponseWriter, r *http.Request) {
+	userId := r.Context().Value(archivus_constants.ContextKey(archivus_constants.UserIdKey)).(string)
+	users, err := h.service.GetUsersInDrive(userId)
+	if err != nil {
+		response.BadRequestResponse(w, err.Error())
+		return
+	}
+	response.JSONResponse(w, map[string]interface{}{"users": users})
+}
+
+func (h *AuthHandler) GetUserInfoHandler(w http.ResponseWriter, r *http.Request) {
+	userId := r.Context().Value(archivus_constants.ContextKey(archivus_constants.UserIdKey)).(string)
+	userInfo, err := h.service.GetUserInfo(userId)
+	if err != nil {
+		response.BadRequestResponse(w, err.Error())
+		return
+	}
+	response.JSONResponse(w, userInfo)
+}

@@ -1,4 +1,4 @@
-package dirmanager
+package storagemanager
 
 import (
 	"fmt"

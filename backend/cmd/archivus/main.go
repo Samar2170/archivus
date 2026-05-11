@@ -3,7 +3,7 @@ package main
 import (
 	"archivus/internal/config"
 	"archivus/internal/services/auth"
-	"archivus/internal/services/dirmanager"
+	"archivus/internal/services/storagemanager"
 	"archivus/internal/store"
 	"archivus/server"
 	"archivus/shell"
@@ -21,7 +21,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	dm := dirmanager.DirManager{Home: config.Config.ArchivusHome, Store: s, UsersHome: config.UsersDir}
+	dm := storagemanager.StorageManager{Home: config.Config.ArchivusHome, Store: s, UsersHome: config.UsersDir}
 
 	parser := argparse.NewParser("archivus-v2", "A simple file archiver")
 	serverCmd := parser.NewCommand("server", "Run the archivus server")

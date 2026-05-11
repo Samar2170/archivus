@@ -26,6 +26,7 @@ type DirectoryMetadata struct {
 	ID      int64     `gorm:"type:uuid;primaryKeyIndex"`
 	Name    string    `gorm:"not null;index"`
 	AbsPath string    `gorm:"not null;index"`
+	RelPath string    `gorm:"not null;index"`
 	Drive   Drive     `gorm:"foreignKey:DriveID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
 	DriveID uuid.UUID `gorm:"type:uuid;not null"`
 
@@ -38,6 +39,7 @@ type FileMetadata struct {
 	Name    string    `gorm:"not null;index"`
 	AbsPath string    `gorm:"not null;index"`
 	RelPath string    `gorm:"not null;index"`
+	DirPath string    `gorm:"not null;index"`
 	Drive   Drive     `gorm:"foreignKey:DriveID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
 	DriveID uuid.UUID `gorm:"type:uuid;not null"`
 

@@ -27,5 +27,9 @@ func GetServer(authService *auth.AuthService) *http.Server {
 	protected.HandleFunc("/auth/drive/remove", authHandler.RemoveUserFromDrive).Methods(http.MethodPost)
 	protected.HandleFunc("/auth/drive/add", authHandler.AddUserToDrive).Methods(http.MethodPost)
 
+	storageHandler := handlers.NewStorageHandler(authService.DirManager)
+	protected.HandleFunc("/storage/folder/create", storageHandler.CreateFolder).Methods(http.MethodPost)
+	protected.HandleFunc("/storage/folder/delete", storageHandler.DeleteFolder).Methods(http.MethodPost)
+
 	return &http.Server{Handler: router, Addr: ":8080"}
 }

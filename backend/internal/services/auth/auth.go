@@ -3,7 +3,7 @@ package auth
 import (
 	archivus_constants "archivus/internal/constants"
 	"archivus/internal/models"
-	dirmanager "archivus/internal/services/dirmanager"
+	storagemanager "archivus/internal/services/storagemanager"
 	"archivus/internal/store"
 	"archivus/pkg/utils"
 	"fmt"
@@ -11,7 +11,7 @@ import (
 
 type AuthService struct {
 	Store              *store.Store
-	DirManager         *dirmanager.DirManager
+	DirManager         *storagemanager.StorageManager
 	DefaultWriteAccess bool
 	SecretKey          string
 }

@@ -9,6 +9,8 @@ const (
 
 	SettingsDir    = ".archivus"
 	ConfigFileName = "config.yaml"
+
+	MaxUploadSize = 100 << 20 // 100 MB
 )
 
 type ContextKey string

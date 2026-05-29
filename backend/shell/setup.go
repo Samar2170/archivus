@@ -5,11 +5,21 @@ import (
 	"archivus/internal/services/auth"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 )
 
 type Shell struct {
 	AuthService *auth.AuthService
+}
+
+func S3Setup() string {
+	filepath := getUserInput("Enter path to s3config.yaml or s3config.json: ", "")
+	if _, err := os.Stat(filepath); os.IsNotExist(err) {
+		fmt.Println("File does not exist")
+		return S3Setup()
+	}
+	return filepath
 }
 
 func (sh *Shell) NewMasterUser() (models.User, error) {

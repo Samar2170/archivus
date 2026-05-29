@@ -20,17 +20,29 @@ type Configuration struct {
 	ArchivusHome       string `yaml:"base_dir"`
 	ServerSalt         string `yaml:"server_salt"`
 	BackendProxyUrl    string `yaml:"backend_proxy_url"`
+
+	S3Enabled bool `yaml:"s3_enabled"`
 }
 
 var (
 	Config         *Configuration
+	S3Cfg          *S3Config
 	ProjectBaseDir string
 	UsersDir       string
 )
 
 // Init sets ProjectBaseDir, writes a default config if none exists, then loads
 // it into Config. Must be called before any other package that reads Config.
-func Init() error {
+func Init(serverMode, s3ConfigPath string) error {
+	var s3Enabled bool
+	if serverMode == "biz" {
+		var err error
+		S3Cfg, err = LoadS3Config(s3ConfigPath)
+		if err != nil {
+			return fmt.Errorf("load s3 config: %w", err)
+		}
+		s3Enabled = true
+	}
 	var homeDir string
 	var err error
 
@@ -51,7 +63,7 @@ func Init() error {
 
 	configPath := filepath.Join(ProjectBaseDir, archivus_constants.ConfigFileName)
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		cfg, err := newDefault(homeDir)
+		cfg, err := newDefault(homeDir, s3Enabled)
 		if err != nil {
 			return fmt.Errorf("build default config: %w", err)
 		}
@@ -71,7 +83,7 @@ func Init() error {
 	return nil
 }
 
-func newDefault(homeDir string) (*Configuration, error) {
+func newDefault(homeDir string, s3Enabled bool) (*Configuration, error) {
 	sk, err := generateRandomAlphaNumericString(32)
 	if err != nil {
 		return nil, err
@@ -96,6 +108,7 @@ func newDefault(homeDir string) (*Configuration, error) {
 		SecretKey:          sk,
 		ArchivusHome:       archivusHome,
 		ServerSalt:         ss,
+		S3Enabled:          s3Enabled,
 	}, nil
 }
 

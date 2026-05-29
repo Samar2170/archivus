@@ -1,4 +1,4 @@
-package storagemanager
+package utils
 
 import (
 	"fmt"
@@ -7,7 +7,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func createSlug(name string) string {
+func CreateSlug(name string) string {
 	slug := strings.ReplaceAll(name, " ", "-")
 	slug = strings.ToLower(slug)
 	slug = fmt.Sprintf("%s-%s", slug, uuid.New().String()[:8])

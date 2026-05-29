@@ -12,10 +12,10 @@ import (
 )
 
 type StorageHandler struct {
-	service *storagemanager.StorageManager
+	service storagemanager.StorageManager
 }
 
-func NewStorageHandler(service *storagemanager.StorageManager) *StorageHandler {
+func NewStorageHandler(service storagemanager.StorageManager) *StorageHandler {
 	return &StorageHandler{service: service}
 }
 

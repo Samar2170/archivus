@@ -1,22 +1,22 @@
-package storagemanager
+package diskmanager
 
 import (
-	"archivus/internal/models"
 	"archivus/internal/store"
+	"archivus/internal/utils"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 )
 
-type StorageManager struct {
+type DiskManager struct {
 	Home      string
 	UsersHome string
 	Store     *store.Store
 }
 
-func GetStorageManager(store *store.Store, home string) *StorageManager {
-	return &StorageManager{
+func GetDiskManager(store *store.Store, home string) *DiskManager {
+	return &DiskManager{
 		Home:  home,
 		Store: store,
 	}
@@ -25,60 +25,63 @@ func GetStorageManager(store *store.Store, home string) *StorageManager {
 var ErrMasterUserPersonalDrive = errors.New("master users cannot have a personal drive")
 
 // CreateDriveDir creates the filesystem directory for a shared drive.
-func (dm *StorageManager) CreateDriveDir(driveName string) (string, string, error) {
-	slug := createSlug(driveName)
+func (dm *DiskManager) CreateDriveDir(driveName string) (string, string, error) {
+	slug := utils.CreateSlug(driveName)
 	absPath := filepath.Join(dm.Home, slug)
 	if err := os.MkdirAll(absPath, 0755); err != nil {
-		return "", "", fmt.Errorf("storagemanager: create drive dir %q: %w", absPath, err)
+		return "", "", fmt.Errorf("diskmanager: create drive dir %q: %w", absPath, err)
 	}
 	return slug, absPath, nil
 }
 
-func (dm *StorageManager) DeleteDriveDir(driveName string) error {
-	slug := createSlug(driveName)
+func (dm *DiskManager) DeleteDriveDir(driveName string) error {
+	slug := utils.CreateSlug(driveName)
 	absPath := filepath.Join(dm.Home, slug)
 	if err := os.RemoveAll(absPath); err != nil {
-		return fmt.Errorf("storagemanager: delete drive dir %q: %w", absPath, err)
+		return fmt.Errorf("diskmanager: delete drive dir %q: %w", absPath, err)
 	}
 	return nil
 }
 
 // CreateUserDriveDir creates a personal drive directory for a non-master user.
-func (dm *StorageManager) CreateUserDriveDir(user *models.User) error {
-	if user.IsMaster {
-		return ErrMasterUserPersonalDrive
-	}
-	path := filepath.Join(dm.UsersHome, user.Username)
-	if err := os.MkdirAll(path, 0755); err != nil {
-		return fmt.Errorf("storagemanager: create user drive dir %q: %w", path, err)
-	}
-	return nil
-}
+// func (dm *DiskManager) CreateUserDriveDir(user *models.User) error {
+// 	if user.IsMaster {
+// 		return ErrMasterUserPersonalDrive
+// 	}
+// 	if dm.S3Enabled {
+// 		return nil
+// 	}
+// 	path := filepath.Join(dm.UsersHome, user.Username)
+// 	if err := os.MkdirAll(path, 0755); err != nil {
+// 		return fmt.Errorf("diskmanager: create user drive dir %q: %w", path, err)
+// 	}
+// 	return nil
+// }
 
-func (dm *StorageManager) checkUserDriveWriteAccess(userID, driveID string) (bool, error) {
+func (dm *DiskManager) checkUserDriveWriteAccess(userID, driveID string) (bool, error) {
 	user, err := dm.Store.GetUserByID(userID)
 	if err != nil {
-		return false, fmt.Errorf("storagemanager: get user by id %q: %w", userID, err)
+		return false, fmt.Errorf("diskmanager: get user by id %q: %w", userID, err)
 	}
 	if !user.WriteAccess {
 		return false, nil
 	}
 	inDrive, err := dm.Store.CheckIfUserInDrive(userID, driveID)
 	if err != nil {
-		return false, fmt.Errorf("storagemanager: check if user in drive: %w", err)
+		return false, fmt.Errorf("diskmanager: check if user in drive: %w", err)
 	}
 	return inDrive, nil
 }
 
-func (dm *StorageManager) checkUserHasDriveAccess(userID, driveID string) (bool, error) {
+func (dm *DiskManager) checkUserHasDriveAccess(userID, driveID string) (bool, error) {
 	inDrive, err := dm.Store.CheckIfUserInDrive(userID, driveID)
 	if err != nil {
-		return false, fmt.Errorf("storagemanager: check if user in drive: %w", err)
+		return false, fmt.Errorf("diskmanager: check if user in drive: %w", err)
 	}
 	return inDrive, nil
 }
 
-func (dm *StorageManager) CreateDir(subFolder, driveId, userId string) error {
+func (dm *DiskManager) CreateDir(subFolder, driveId, userId string) error {
 	var dirPath string
 	if subFolder == "" {
 		return errors.New("subFolder cannot be empty")
@@ -93,13 +96,13 @@ func (dm *StorageManager) CreateDir(subFolder, driveId, userId string) error {
 
 	drive, err := dm.Store.GetDriveByID(driveId)
 	if err != nil {
-		return fmt.Errorf("storagemanager: get drive by id %q: %w", driveId, err)
+		return fmt.Errorf("diskmanager: get drive by id %q: %w", driveId, err)
 	}
 
 	relPath := filepath.Join(drive.Slug, subFolder)
 	dirPath = filepath.Join(dm.Home, relPath)
 	if err := os.MkdirAll(dirPath, 0755); err != nil {
-		return fmt.Errorf("storagemanager: create dir %q: %w", dirPath, err)
+		return fmt.Errorf("diskmanager: create dir %q: %w", dirPath, err)
 	}
 	subFolderSplit := filepath.SplitList(subFolder)
 	name := subFolderSplit[len(subFolderSplit)-1]
@@ -110,12 +113,12 @@ func (dm *StorageManager) CreateDir(subFolder, driveId, userId string) error {
 		if err != nil {
 			fmt.Printf("warning: failed to clean up directory after db error: %v\n", err)
 		}
-		return fmt.Errorf("storagemanager: create directory metadata for dir %q: %w", dirPath, err)
+		return fmt.Errorf("diskmanager: create directory metadata for dir %q: %w", dirPath, err)
 	}
 	return nil
 }
 
-func (dm *StorageManager) DeleteDir(relPath, driveId, userId string) error {
+func (dm *DiskManager) DeleteDir(relPath, driveId, userId string) error {
 	dirPath := filepath.Join(dm.Home, relPath)
 	hasAccess, err := dm.checkUserDriveWriteAccess(userId, driveId)
 	if err != nil {

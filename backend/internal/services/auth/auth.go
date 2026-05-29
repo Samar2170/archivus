@@ -3,7 +3,7 @@ package auth
 import (
 	archivus_constants "archivus/internal/constants"
 	"archivus/internal/models"
-	storagemanager "archivus/internal/services/storagemanager"
+	"archivus/internal/services/storagemanager"
 	"archivus/internal/store"
 	"archivus/pkg/utils"
 	"fmt"
@@ -11,7 +11,7 @@ import (
 
 type AuthService struct {
 	Store              *store.Store
-	DirManager         *storagemanager.StorageManager
+	DirManager         storagemanager.StorageManager
 	DefaultWriteAccess bool
 	SecretKey          string
 }
@@ -100,4 +100,12 @@ func (a *AuthService) Login(username, password, pin string) (token string, err e
 		return "", fmt.Errorf("failed to create token: %w", err)
 	}
 	return token, nil
+}
+
+func (a *AuthService) CheckMasterUser() (bool, error) {
+	exists, err := a.Store.CheckMasterUserExists()
+	if err != nil {
+		return false, fmt.Errorf("failed to check master user: %w", err)
+	}
+	return exists, nil
 }

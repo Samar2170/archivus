@@ -1,7 +1,8 @@
-package storagemanager
+package diskmanager
 
 import (
 	"archivus/internal/models"
+	storage_types "archivus/internal/services/storagemanager/types"
 	"errors"
 	"fmt"
 	"io"
@@ -10,7 +11,7 @@ import (
 	"path/filepath"
 )
 
-func (dm *StorageManager) UploadFile(relPath, driveId, userId string, file multipart.File, fileHeader *multipart.FileHeader) error {
+func (dm *DiskManager) UploadFile(relPath, driveId, userId string, file multipart.File, fileHeader *multipart.FileHeader) error {
 	hasAccess, err := dm.checkUserDriveWriteAccess(userId, driveId)
 	if err != nil {
 		return err
@@ -20,19 +21,19 @@ func (dm *StorageManager) UploadFile(relPath, driveId, userId string, file multi
 	}
 	drive, err := dm.Store.GetDriveByID(driveId)
 	if err != nil {
-		return fmt.Errorf("storagemanager: get drive by id %q: %w", driveId, err)
+		return fmt.Errorf("diskmanager: get drive by id %q: %w", driveId, err)
 	}
 	dirPath := filepath.Join(dm.Home, drive.Slug, relPath)
 	relPath = filepath.Join(drive.Slug, relPath, fileHeader.Filename)
 	absPath := filepath.Join(dm.Home, relPath)
 	outFile, err := os.Create(absPath)
 	if err != nil {
-		return fmt.Errorf("storagemanager: create file %q: %w", absPath, err)
+		return fmt.Errorf("diskmanager: create file %q: %w", absPath, err)
 	}
 	defer outFile.Close()
 
 	if _, err := io.Copy(outFile, file); err != nil {
-		return fmt.Errorf("storagemanager: save file %q: %w", absPath, err)
+		return fmt.Errorf("diskmanager: save file %q: %w", absPath, err)
 	}
 
 	sizeInMb := float64(fileHeader.Size) / (1 << 20)
@@ -42,25 +43,12 @@ func (dm *StorageManager) UploadFile(relPath, driveId, userId string, file multi
 		if err != nil {
 			fmt.Printf("warning: failed to clean up file after db error: %v\n", err)
 		}
-		return fmt.Errorf("storagemanager: create file metadata for file %q: %w", absPath, err)
+		return fmt.Errorf("diskmanager: create file metadata for file %q: %w", absPath, err)
 	}
 	return nil
 }
 
-type DirEntry struct {
-	ID        uint
-	Name      string
-	IsDir     bool
-	Extension string
-	SignedUrl string
-	Size      float64
-	Path      string
-	Thumbnail string
-
-	NavigationPath string
-}
-
-func (dm *StorageManager) MoveFile(srcRelPath, dstRelPath, driveId, userId string) error {
+func (dm *DiskManager) MoveFile(srcRelPath, dstRelPath, driveId, userId string) error {
 	hasAccess, err := dm.checkUserDriveWriteAccess(userId, driveId)
 	if err != nil {
 		return err
@@ -70,7 +58,7 @@ func (dm *StorageManager) MoveFile(srcRelPath, dstRelPath, driveId, userId strin
 	}
 	drive, err := dm.Store.GetDriveByID(driveId)
 	if err != nil {
-		return fmt.Errorf("storagemanager: get drive by id %q: %w", driveId, err)
+		return fmt.Errorf("diskmanager: get drive by id %q: %w", driveId, err)
 	}
 
 	srcAbs := filepath.Join(dm.Home, drive.Slug, srcRelPath)
@@ -78,11 +66,11 @@ func (dm *StorageManager) MoveFile(srcRelPath, dstRelPath, driveId, userId strin
 
 	md, err := dm.Store.GetFileMetadataByRelPath(filepath.Join(drive.Slug, srcRelPath))
 	if err != nil {
-		return fmt.Errorf("storagemanager: get file metadata for %q: %w", srcRelPath, err)
+		return fmt.Errorf("diskmanager: get file metadata for %q: %w", srcRelPath, err)
 	}
 
 	if err := os.Rename(srcAbs, dstAbs); err != nil {
-		return fmt.Errorf("storagemanager: move file %q to %q: %w", srcAbs, dstAbs, err)
+		return fmt.Errorf("diskmanager: move file %q to %q: %w", srcAbs, dstAbs, err)
 	}
 
 	newRelPath := filepath.Join(drive.Slug, dstRelPath)
@@ -92,12 +80,12 @@ func (dm *StorageManager) MoveFile(srcRelPath, dstRelPath, driveId, userId strin
 		if rerr := os.Rename(dstAbs, srcAbs); rerr != nil {
 			fmt.Printf("warning: failed to revert file move after db error: %v\n", rerr)
 		}
-		return fmt.Errorf("storagemanager: update file metadata after move: %w", err)
+		return fmt.Errorf("diskmanager: update file metadata after move: %w", err)
 	}
 	return nil
 }
 
-func (dm *StorageManager) DownloadFile(fileId int64, driveId, userId string) (*os.File, *models.FileMetadata, error) {
+func (dm *DiskManager) DownloadFile(fileId int64, driveId, userId string) (*os.File, *models.FileMetadata, error) {
 	hasAccess, err := dm.checkUserHasDriveAccess(userId, driveId)
 	if err != nil {
 		return nil, nil, err
@@ -108,17 +96,17 @@ func (dm *StorageManager) DownloadFile(fileId int64, driveId, userId string) (*o
 
 	md, err := dm.Store.GetFileMetadataByID(fileId)
 	if err != nil {
-		return nil, nil, fmt.Errorf("storagemanager: get file metadata by id %d: %w", fileId, err)
+		return nil, nil, fmt.Errorf("diskmanager: get file metadata by id %d: %w", fileId, err)
 	}
 
 	f, err := os.Open(md.AbsPath)
 	if err != nil {
-		return nil, nil, fmt.Errorf("storagemanager: open file %q: %w", md.AbsPath, err)
+		return nil, nil, fmt.Errorf("diskmanager: open file %q: %w", md.AbsPath, err)
 	}
 	return f, &md, nil
 }
 
-func (dm *StorageManager) GetFiles(relPath, driveId, userId string) ([]DirEntry, error) {
+func (dm *DiskManager) GetFiles(relPath, driveId, userId string) ([]storage_types.DirEntry, error) {
 	hasAccess, err := dm.checkUserHasDriveAccess(userId, driveId)
 	if err != nil {
 		return nil, err
@@ -128,23 +116,23 @@ func (dm *StorageManager) GetFiles(relPath, driveId, userId string) ([]DirEntry,
 	}
 	drive, err := dm.Store.GetDriveByID(driveId)
 	if err != nil {
-		return nil, fmt.Errorf("storagemanager: get drive by id %q: %w", driveId, err)
+		return nil, fmt.Errorf("diskmanager: get drive by id %q: %w", driveId, err)
 	}
 	files, err := os.ReadDir(filepath.Join(dm.Home, drive.Slug, relPath))
 	if err != nil {
-		return nil, fmt.Errorf("storagemanager: read directory %q: %w", filepath.Join(dm.Home, drive.Slug, relPath), err)
+		return nil, fmt.Errorf("diskmanager: read directory %q: %w", filepath.Join(dm.Home, drive.Slug, relPath), err)
 	}
 	mds, err := dm.Store.ListFilesByRelPath(filepath.Join(dm.Home, drive.Slug, relPath))
 	if err != nil {
-		return nil, fmt.Errorf("storagemanager: list files by directory path %q: %w", filepath.Join(drive.Slug, relPath), err)
+		return nil, fmt.Errorf("diskmanager: list files by directory path %q: %w", filepath.Join(drive.Slug, relPath), err)
 	}
 	mdIdMap := make(map[string]string)
 	for _, md := range mds {
 		mdIdMap[md.Name] = fmt.Sprintf("%d", md.ID)
 	}
-	var dirEntries []DirEntry
+	var dirEntries []storage_types.DirEntry
 	for i, entry := range files {
-		d := DirEntry{
+		d := storage_types.DirEntry{
 			ID:             uint(i),
 			Name:           entry.Name(),
 			IsDir:          entry.IsDir(),

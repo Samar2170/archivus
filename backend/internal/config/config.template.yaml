@@ -4,3 +4,9 @@ logs_dir: "logs"
 secret_key: "JuRKdO6AMjn4aMybwaVA9H9CsWpyULQA"
 base_dir: "archivus"
 server_salt: "s0m3R4nd0mS4lt"
+s3_enabled: true
+s3:
+  account_id: "4956244340f044f919bd5d2b67dd3b8e"
+  s3_api: "https://4956244340f044f919bd5d2b67dd3b8e.r2.cloudflarestorage.com"
+  access_key: ""
+  secret_key: ""

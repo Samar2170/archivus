@@ -2,12 +2,13 @@ package store
 
 import (
 	"archivus/internal/models"
+	"context"
 	"fmt"
 
 	"github.com/google/uuid"
 )
 
-func (s *Store) CreateDrive(name, ownerID, slug, absPath string) (models.Drive, error) {
+func (s *Store) CreateDrive(name, ownerID, slug, prefix string) (models.Drive, error) {
 	id, err := uuid.Parse(ownerID)
 	if err != nil {
 		return models.Drive{}, fmt.Errorf("invalid owner ID: %w", err)
@@ -16,7 +17,8 @@ func (s *Store) CreateDrive(name, ownerID, slug, absPath string) (models.Drive, 
 		Name:    name,
 		OwnerID: id,
 		Slug:    slug,
-		AbsPath: absPath,
+		Prefix:  prefix,
+		Path:    prefix + "/" + slug,
 	}
 	result := s.conn().Create(&drive)
 	return drive, result.Error
@@ -54,7 +56,28 @@ func (s *Store) GetDriveByIDOrSlug(idOrSlug string) (models.Drive, error) {
 	return drive, result.Error
 }
 
-func (s *Store) AddUserToDrive(userID, driveID string) error {
+func (s *Store) addUserToDriveRead(userIDParsed, driveIDParsed uuid.UUID) error {
+	return s.conn().Exec(
+		"INSERT OR IGNORE INTO drive_users (drive_id, user_id) VALUES (?, ?)",
+		driveIDParsed, userIDParsed,
+	).Error
+}
+
+func (s *Store) addUserToDriveWrite(userIDParsed, driveIDParsed uuid.UUID) error {
+	return s.conn().Exec(
+		"INSERT OR IGNORE INTO drive_write_users (drive_id, user_id) VALUES (?, ?)",
+		driveIDParsed, userIDParsed,
+	).Error
+}
+
+func (s *Store) addUserToDriveManager(userIDParsed, driveIDParsed uuid.UUID) error {
+	return s.conn().Exec(
+		"INSERT OR IGNORE INTO drive_manager_users (drive_id, user_id) VALUES (?, ?)",
+		driveIDParsed, userIDParsed,
+	).Error
+}
+
+func (s *Store) AddUserToDrive(ctx context.Context, userID, driveID string, access models.AccessLevel) error {
 	userIDParsed, err := uuid.Parse(userID)
 	if err != nil {
 		return fmt.Errorf("invalid user ID: %w", err)
@@ -63,12 +86,26 @@ func (s *Store) AddUserToDrive(userID, driveID string) error {
 	if err != nil {
 		return fmt.Errorf("invalid drive ID: %w", err)
 	}
-	return s.conn().Exec(
-		"INSERT OR IGNORE INTO drive_users (drive_id, user_id) VALUES (?, ?)",
-		driveIDParsed, userIDParsed,
-	).Error
-}
 
+	return s.Transaction(func(tx *Store) error {
+		if err := tx.addUserToDriveRead(userIDParsed, driveIDParsed); err != nil {
+			return fmt.Errorf("granting read: %w", err)
+		}
+		if access == models.AccessLevelRead {
+			return nil
+		}
+		if err := tx.addUserToDriveWrite(userIDParsed, driveIDParsed); err != nil {
+			return fmt.Errorf("granting write: %w", err)
+		}
+		if access == models.AccessLevelWrite {
+			return nil
+		}
+		if err := tx.addUserToDriveManager(userIDParsed, driveIDParsed); err != nil {
+			return fmt.Errorf("granting manager: %w", err)
+		}
+		return nil
+	})
+}
 func (s *Store) GetUsersByDriveID(driveID string) ([]models.User, error) {
 	driveIDParsed, err := uuid.Parse(driveID)
 	if err != nil {
@@ -79,7 +116,7 @@ func (s *Store) GetUsersByDriveID(driveID string) ([]models.User, error) {
 	if result.Error != nil {
 		return nil, result.Error
 	}
-	return drive.Users, nil
+	return drive.ReadUsers, nil
 }
 
 func (s *Store) CheckIfUserInDrive(userID, driveID string) (bool, error) {

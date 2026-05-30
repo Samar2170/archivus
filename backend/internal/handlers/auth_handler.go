@@ -2,10 +2,13 @@ package handlers
 
 import (
 	archivus_constants "archivus/internal/constants"
+	"archivus/internal/models"
 	"archivus/internal/services/auth"
 	reqhelpers "archivus/pkg/reqHelpers"
 	"archivus/pkg/response"
+	"fmt"
 	"net/http"
+	"time"
 )
 
 type AuthHandler struct {
@@ -23,11 +26,14 @@ type loginRequest struct {
 }
 
 type registerRequest struct {
-	Username   string `json:"username"`
-	Password   string `json:"password"`
-	PIN        string `json:"pin"`
-	Email      string `json:"email"`
-	InviteCode string `json:"invite_code"`
+	Username   string          `json:"username"`
+	Password   string          `json:"password"`
+	PIN        string          `json:"pin"`
+	Email      string          `json:"email"`
+	UserType   models.UserType `json:"user_type"`
+	InviteCode string          `json:"invite_code"` // for business users
+	IsAdmin    bool            `json:"is_admin"`    // for business users
+	DriveName  string          `json:"drive_name"`  // for personal users
 }
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
@@ -46,40 +52,88 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	response.JSONResponse(w, map[string]string{"token": token})
 }
 
+func registerPersonalUser(h *AuthHandler, req registerRequest) error {
+	user, err := h.service.CreateUser(req.Username, req.Password, req.PIN, req.Email, req.UserType, true)
+	if err != nil {
+		return fmt.Errorf("failed to create user: %w", err)
+	}
+	_, err = h.service.SetupNewDrive(user.Username, user.ID.String())
+	if err != nil {
+		return fmt.Errorf("failed to create drive: %w", err)
+	}
+	return nil
+}
+
+func registerBusinessUser(h *AuthHandler, req registerRequest) error {
+	if req.InviteCode == "" && !req.IsAdmin {
+		return fmt.Errorf("invite code or admin flag required for business users")
+	}
+	var invite models.UserInvite
+	var err error
+	invite, err = h.service.ValidateInviteCode(req.InviteCode)
+	if err != nil {
+		return fmt.Errorf("invalid invite code: %w", err)
+	}
+	if invite.ExpiresAt.Before(time.Now()) {
+		return fmt.Errorf("invite code has expired")
+	}
+	user, err := h.service.CreateUser(req.Username, req.Password, req.PIN, req.Email, req.UserType, req.IsAdmin)
+
+	// business users can be added to drives after creation, if invite code is provided
+	if req.InviteCode != "" {
+		if err := h.service.AddUserToDrive(user.ID.String(), invite.DriveID.String(), "", ""); err != nil {
+			return fmt.Errorf("failed to add user to drive: %w", err)
+		}
+		return nil
+	}
+	if req.DriveName != "" {
+		_, err = h.service.SetupNewDrive(req.DriveName, user.ID.String())
+	} else {
+		_, err = h.service.SetupNewDrive(user.Username, user.ID.String())
+	}
+	if err != nil {
+		return fmt.Errorf("failed to create drive: %w", err)
+	}
+	return nil
+}
+
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	var req registerRequest
 	if err := reqhelpers.DecodeRequest(r, &req); err != nil {
 		response.BadRequestResponse(w, err.Error())
 		return
 	}
-	invite, err := h.service.ValidateInviteCode(req.InviteCode)
-	if err != nil {
-		response.BadRequestResponse(w, "invalid invite code")
-		return
+	var err error
+	if req.UserType == models.UserTypeBusiness {
+		err = registerBusinessUser(h, req)
+	} else if req.UserType == models.UserTypePersonal {
+		err = registerPersonalUser(h, req)
 	}
-
-	user, err := h.service.CreateUser(req.Username, req.Password, req.PIN, req.Email, false)
 	if err != nil {
-		response.BadRequestResponse(w, err.Error())
-		return
-	}
-
-	if err := h.service.AddUserToDrive(user.ID.String(), invite.DriveID.String(), "", ""); err != nil {
 		response.BadRequestResponse(w, err.Error())
 		return
 	}
 
 	response.JSONResponse(w, map[string]interface{}{
-		"id":       user.ID.String(),
-		"username": user.Username,
-		"email":    user.Email,
+		"message": "user created",
 	})
+}
+
+type inviteUserRequest struct {
+	UserID  string             `json:"user_id"`
+	DriveID string             `json:"drive_id"`
+	Access  models.AccessLevel `json:"access"`
 }
 
 func (h *AuthHandler) InviteUser(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(archivus_constants.ContextKey(archivus_constants.UserIdKey)).(string)
 	if !ok {
 		response.UnauthorizedResponse(w, "missing user context")
+		return
+	}
+	var req inviteUserRequest
+	if err := reqhelpers.DecodeRequest(r, &req); err != nil {
+		response.BadRequestResponse(w, err.Error())
 		return
 	}
 
@@ -89,12 +143,11 @@ func (h *AuthHandler) InviteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inviteCode, err := h.service.InviteUser(user)
+	inviteCode, err := h.service.InviteUser(user, req.DriveID, req.Access)
 	if err != nil {
 		response.BadRequestResponse(w, err.Error())
 		return
 	}
-
 	response.JSONResponse(w, map[string]string{"invite_code": inviteCode})
 }
 
@@ -115,7 +168,6 @@ func (h *AuthHandler) RemoveUserFromDrive(w http.ResponseWriter, r *http.Request
 		response.BadRequestResponse(w, err.Error())
 		return
 	}
-
 	response.JSONResponse(w, map[string]string{"message": "user removed from drive"})
 }
 
@@ -136,7 +188,6 @@ func (h *AuthHandler) AddUserToDrive(w http.ResponseWriter, r *http.Request) {
 		response.BadRequestResponse(w, err.Error())
 		return
 	}
-
 	response.JSONResponse(w, map[string]string{"message": "user added to drive"})
 }
 

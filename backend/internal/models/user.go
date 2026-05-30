@@ -32,6 +32,14 @@ func (u *User) BeforeCreate(tx *gorm.DB) (err error) {
 	return
 }
 
+type AccessLevel string
+
+const (
+	AccessLevelRead    AccessLevel = "read"
+	AccessLevelWrite   AccessLevel = "write"
+	AccessLevelManager AccessLevel = "manager"
+)
+
 type UserInvite struct {
 	*gorm.Model
 	ID         uuid.UUID `gorm:"type:uuid;primaryKey"`
@@ -39,7 +47,9 @@ type UserInvite struct {
 	InvitedBy  uuid.UUID `gorm:"type:uuid;not null"`
 	Drive      Drive     `gorm:"foreignKey:InvitedBy;constraint:OnDelete:CASCADE;"`
 	DriveID    uuid.UUID `gorm:"type:uuid;not null"`
-	ExpiresAt  time.Time `gorm:"not null"`
+
+	AccessLevel AccessLevel `gorm:"not null"`
+	ExpiresAt   time.Time   `gorm:"not null"`
 }
 
 func (ui *UserInvite) BeforeCreate(tx *gorm.DB) (err error) {

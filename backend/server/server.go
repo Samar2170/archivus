@@ -16,13 +16,16 @@ func HealthCheck(w http.ResponseWriter, r *http.Request) {
 func GetServer(authService *auth.AuthService) *http.Server {
 	router := mux.NewRouter()
 	router.HandleFunc("/health", HealthCheck)
-
 	authHandler := handlers.NewAuthHandler(authService)
+
 	router.HandleFunc("/auth/login", authHandler.Login).Methods(http.MethodPost)
 	router.HandleFunc("/auth/register", authHandler.Register).Methods(http.MethodPost)
+	router.HandleFunc("/auth/register/master", authHandler.RegisterAsMasterUser).Methods(http.MethodPost)
 
 	protected := router.NewRoute().Subrouter()
 	protected.Use(AuthMiddleware(authService))
+	protected.Use(HomeMiddleware(authService))
+
 	protected.HandleFunc("/auth/drive/invite", authHandler.InviteUser).Methods(http.MethodPost)
 	protected.HandleFunc("/auth/drive/remove", authHandler.RemoveUserFromDrive).Methods(http.MethodPost)
 	protected.HandleFunc("/auth/drive/add", authHandler.AddUserToDrive).Methods(http.MethodPost)

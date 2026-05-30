@@ -76,7 +76,7 @@ func (s *S3Manager) MoveFile(srcRelPath, dstRelPath, driveId, userId string) err
 	return s.Store.UpdateFileMetadataPaths(md.ID, newAbsPath, newRelPath, newDirPath)
 }
 
-func (s *S3Manager) DownloadFile(fileId int64, driveId, userId string) (*os.File, *models.FileMetadata, error) {
+func (s *S3Manager) DownloadFile(fileId string, driveId, userId string) (*os.File, *models.FileMetadata, error) {
 	hasAccess, err := s.checkUserHasDriveAccess(userId, driveId)
 	if err != nil {
 		return nil, nil, err

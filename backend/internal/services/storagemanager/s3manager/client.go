@@ -14,18 +14,20 @@ import (
 )
 
 type Client struct {
-	s3      *s3.Client
-	presign *s3.PresignClient
+	s3         *s3.Client
+	presign    *s3.PresignClient
+	BucketName string
 }
 
-func New(accountID, accessKey, secretKey string) (*Client, error) {
+func New(accountID, accessKey, secretKey, bucketName string) (*Client, error) {
 	s3Client, err := newS3Client(accountID, accessKey, secretKey)
 	if err != nil {
 		return nil, err
 	}
 	return &Client{
-		s3:      s3Client,
-		presign: s3.NewPresignClient(s3Client),
+		s3:         s3Client,
+		presign:    s3.NewPresignClient(s3Client),
+		BucketName: bucketName,
 	}, nil
 }
 

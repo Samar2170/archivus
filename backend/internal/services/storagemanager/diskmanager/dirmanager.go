@@ -2,7 +2,6 @@ package diskmanager
 
 import (
 	"archivus/internal/store"
-	"archivus/internal/utils"
 	"errors"
 	"fmt"
 	"os"
@@ -25,17 +24,15 @@ func GetDiskManager(store *store.Store, home string) *DiskManager {
 var ErrMasterUserPersonalDrive = errors.New("master users cannot have a personal drive")
 
 // CreateDriveDir creates the filesystem directory for a shared drive.
-func (dm *DiskManager) CreateDriveDir(driveName string) (string, string, error) {
-	slug := utils.CreateSlug(driveName)
+func (dm *DiskManager) CreateDriveDir(slug string) (string, error) {
 	absPath := filepath.Join(dm.Home, slug)
 	if err := os.MkdirAll(absPath, 0755); err != nil {
-		return "", "", fmt.Errorf("diskmanager: create drive dir %q: %w", absPath, err)
+		return "", fmt.Errorf("diskmanager: create drive dir %q: %w", absPath, err)
 	}
-	return slug, absPath, nil
+	return dm.Home, nil
 }
 
-func (dm *DiskManager) DeleteDriveDir(driveName string) error {
-	slug := utils.CreateSlug(driveName)
+func (dm *DiskManager) DeleteDriveDir(slug string) error {
 	absPath := filepath.Join(dm.Home, slug)
 	if err := os.RemoveAll(absPath); err != nil {
 		return fmt.Errorf("diskmanager: delete drive dir %q: %w", absPath, err)

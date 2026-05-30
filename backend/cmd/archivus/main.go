@@ -26,7 +26,6 @@ func main() {
 		Required: true,
 		Help:     "Server mode: 'home' for personal use, 'biz' for business use",
 	})
-	setupDriveCmd := parser.NewCommand("setup-drive", "Set up the drive for the current user")
 
 	err = parser.Parse(os.Args)
 	if err != nil {
@@ -51,6 +50,7 @@ func main() {
 			config.S3Cfg.AccountID,
 			config.S3Cfg.AccessKey,
 			config.S3Cfg.SecretKey,
+			config.S3Cfg.BucketName,
 		)
 		if err != nil {
 			panic(err)
@@ -60,18 +60,9 @@ func main() {
 	}
 	as := auth.AuthService{
 		Store:              s,
-		DirManager:         dm,
+		StorageManager:     dm,
 		DefaultWriteAccess: config.Config.DefaultWriteAccess,
 		SecretKey:          config.Config.SecretKey,
-	}
-	if *serverMode == "home" {
-		exists, err := as.CheckMasterUser()
-		if err != nil {
-			panic(err)
-		}
-		if !exists {
-			panic("master user does not exist, please run archivus setup-drive first")
-		}
 	}
 
 	switch {
@@ -80,9 +71,7 @@ func main() {
 		if err := server.ListenAndServe(); err != nil {
 			panic(err)
 		}
-	case setupDriveCmd.Happened():
-		sh := shell.Shell{AuthService: &auth.AuthService{Store: s}}
-		sh.SetupDrive()
+
 	default:
 		print(parser.Usage(nil))
 	}

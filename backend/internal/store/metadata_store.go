@@ -14,14 +14,14 @@ func (s *Store) CreateDirectoryMetadata(name, absPath, relPath, driveID string) 
 	}
 	directoryMetadata := models.DirectoryMetadata{
 		Name:    name,
-		AbsPath: absPath,
+		PathKey: relPath,
 		DriveID: driveIDParsed,
 	}
 	result := s.conn().Create(&directoryMetadata)
 	return directoryMetadata, result.Error
 }
 
-func (s *Store) CreateFileMetadata(name, absPath, relPath, dirPath, driveID, uploadedByID string, sizeInMb float64) (models.FileMetadata, error) {
+func (s *Store) CreateFileMetadata(name, relPath, dirPath, contentType, driveID, uploadedByID string, sizeInMb float64) (models.FileMetadata, error) {
 	driveIDParsed, err := uuid.Parse(driveID)
 	if err != nil {
 		return models.FileMetadata{}, fmt.Errorf("invalid drive ID: %w", err)
@@ -32,9 +32,9 @@ func (s *Store) CreateFileMetadata(name, absPath, relPath, dirPath, driveID, upl
 	}
 	fileMetadata := models.FileMetadata{
 		Name:         name,
-		AbsPath:      absPath,
-		RelPath:      relPath,
-		DirPath:      dirPath,
+		PathKey:      relPath,
+		Prefix:       dirPath,
+		ContentType:  contentType,
 		DriveID:      driveIDParsed,
 		UploadedByID: uploadedByIDParsed,
 		SizeInMb:     sizeInMb,
@@ -43,13 +43,13 @@ func (s *Store) CreateFileMetadata(name, absPath, relPath, dirPath, driveID, upl
 	return fileMetadata, result.Error
 }
 
-func (s *Store) GetDirectoryMetadataByID(id int64) (models.DirectoryMetadata, error) {
+func (s *Store) GetDirectoryMetadataByID(id string) (models.DirectoryMetadata, error) {
 	var directoryMetadata models.DirectoryMetadata
 	result := s.conn().First(&directoryMetadata, "id = ?", id)
 	return directoryMetadata, result.Error
 }
 
-func (s *Store) GetFileMetadataByID(id int64) (models.FileMetadata, error) {
+func (s *Store) GetFileMetadataByID(id string) (models.FileMetadata, error) {
 	var fileMetadata models.FileMetadata
 	result := s.conn().First(&fileMetadata, "id = ?", id)
 	return fileMetadata, result.Error
@@ -80,9 +80,10 @@ func (s *Store) GetFileMetadataByRelPath(relPath string) (models.FileMetadata, e
 	return fileMetadata, result.Error
 }
 
-func (s *Store) UpdateFileMetadataPaths(id int64, absPath, relPath, dirPath string) error {
+func (s *Store) UpdateFileMetadataPaths(id, absPath, s3Key, relPath, dirPath string) error {
 	result := s.conn().Model(&models.FileMetadata{}).Where("id = ?", id).Updates(map[string]interface{}{
 		"abs_path": absPath,
+		"s3_key":   s3Key,
 		"rel_path": relPath,
 		"dir_path": dirPath,
 	})

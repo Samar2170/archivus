@@ -5,18 +5,19 @@ import (
 	"archivus/internal/models"
 	"archivus/internal/services/storagemanager"
 	"archivus/internal/store"
+	storage_utils "archivus/internal/utils"
 	"archivus/pkg/utils"
 	"fmt"
 )
 
 type AuthService struct {
 	Store              *store.Store
-	DirManager         storagemanager.StorageManager
+	StorageManager     storagemanager.StorageManager
 	DefaultWriteAccess bool
 	SecretKey          string
 }
 
-func (a *AuthService) CreateUser(username, password, pin, email string, isMaster bool) (models.User, error) {
+func (a *AuthService) CreateUser(username, password, pin, email string, userType models.UserType, isAdmin bool) (models.User, error) {
 	var user models.User
 	var err error
 
@@ -38,17 +39,18 @@ func (a *AuthService) CreateUser(username, password, pin, email string, isMaster
 	hashedPIN := utils.HashString(pin)
 
 	var writeAccess bool
-	if isMaster {
+	if isAdmin || userType == models.UserTypePersonal {
 		writeAccess = true
 	} else {
-		writeAccess = a.DefaultWriteAccess
+		writeAccess = false
 	}
 	user = models.User{
 		Username:    username,
 		Password:    hashedPassword,
 		PIN:         hashedPIN,
 		Email:       email,
-		IsMaster:    isMaster,
+		IsAdmin:     isAdmin,
+		Type:        userType,
 		WriteAccess: writeAccess,
 	}
 	return a.Store.CreateUser(user)
@@ -59,18 +61,18 @@ func (a *AuthService) SetupNewDrive(name, userID string) (models.Drive, error) {
 	if err != nil {
 		return models.Drive{}, fmt.Errorf("user not found: %w", err)
 	}
-	if !user.IsMaster {
+	if !user.IsAdmin {
 		return models.Drive{}, fmt.Errorf("only master users can create drives")
 	}
-
-	slug, absPath, err := a.DirManager.CreateDriveDir(name)
+	slug := storage_utils.CreateSlug(name)
+	prefix, err := a.StorageManager.CreateDriveDir(slug)
 	if err != nil {
 		return models.Drive{}, err
 	}
 
-	drive, err := a.Store.CreateDrive(name, userID, slug, absPath)
+	drive, err := a.Store.CreateDrive(name, userID, slug, prefix)
 	if err != nil {
-		if cleanupErr := a.DirManager.DeleteDriveDir(name); cleanupErr != nil {
+		if cleanupErr := a.StorageManager.DeleteDriveDir(name); cleanupErr != nil {
 			fmt.Printf("warning: failed to clean up drive directory after db error: %v\n", cleanupErr)
 		}
 		return models.Drive{}, err
@@ -100,12 +102,4 @@ func (a *AuthService) Login(username, password, pin string) (token string, err e
 		return "", fmt.Errorf("failed to create token: %w", err)
 	}
 	return token, nil
-}
-
-func (a *AuthService) CheckMasterUser() (bool, error) {
-	exists, err := a.Store.CheckMasterUserExists()
-	if err != nil {
-		return false, fmt.Errorf("failed to check master user: %w", err)
-	}
-	return exists, nil
 }

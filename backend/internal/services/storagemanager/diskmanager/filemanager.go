@@ -85,7 +85,7 @@ func (dm *DiskManager) MoveFile(srcRelPath, dstRelPath, driveId, userId string) 
 	return nil
 }
 
-func (dm *DiskManager) DownloadFile(fileId int64, driveId, userId string) (*os.File, *models.FileMetadata, error) {
+func (dm *DiskManager) DownloadFile(fileId string, driveId, userId string) (*os.File, *models.FileMetadata, error) {
 	hasAccess, err := dm.checkUserHasDriveAccess(userId, driveId)
 	if err != nil {
 		return nil, nil, err

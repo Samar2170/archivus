@@ -2,7 +2,6 @@ package s3manager
 
 import (
 	"archivus/internal/store"
-	"archivus/internal/utils"
 	"context"
 	"errors"
 	"fmt"
@@ -15,40 +14,22 @@ type S3Manager struct {
 	Store  *store.Store
 }
 
-func GetS3Manager(s *store.Store, accountID, accessKey, secretKey string) (*S3Manager, error) {
-	client, err := New(accountID, accessKey, secretKey)
+func GetS3Manager(s *store.Store, accountID, accessKey, secretKey, bucketName string) (*S3Manager, error) {
+	client, err := New(accountID, accessKey, secretKey, bucketName)
 	if err != nil {
 		return nil, err
 	}
 	return &S3Manager{Client: client, Store: s}, nil
 }
 
-func (s *S3Manager) CreateDriveDir(driveName string) (string, string, error) {
-	slug := utils.CreateSlug(driveName)
-	if err := s.Client.CreateBucket(context.Background(), slug); err != nil {
-		return "", "", fmt.Errorf("s3manager: create bucket %q: %w", slug, err)
-	}
-	return slug, slug, nil
+func (s *S3Manager) CreateDriveDir(driveName string) (string, error) {
+	return driveName, nil
 }
 
 // DeleteDriveDir deletes a drive bucket by name. Only useful as error-path cleanup
 // immediately after CreateDriveDir, since the slug is re-derived and won't match
 // an existing bucket created in a previous call.
 func (s *S3Manager) DeleteDriveDir(driveName string) error {
-	slug := utils.CreateSlug(driveName)
-	ctx := context.Background()
-	keys, err := s.Client.ListObjects(ctx, slug, "")
-	if err != nil {
-		return fmt.Errorf("s3manager: list bucket %q: %w", slug, err)
-	}
-	if len(keys) > 0 {
-		if err := s.Client.DeleteObjects(ctx, slug, keys); err != nil {
-			return fmt.Errorf("s3manager: empty bucket %q: %w", slug, err)
-		}
-	}
-	if err := s.Client.DeleteBucket(ctx, slug); err != nil {
-		return fmt.Errorf("s3manager: delete bucket %q: %w", slug, err)
-	}
 	return nil
 }
 

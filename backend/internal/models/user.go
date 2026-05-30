@@ -7,6 +7,13 @@ import (
 	"gorm.io/gorm"
 )
 
+type UserType string
+
+const (
+	UserTypePersonal UserType = "personal"
+	UserTypeBusiness UserType = "business"
+)
+
 type User struct {
 	*gorm.Model
 	ID       uuid.UUID `gorm:"type:uuid;primaryKey"`
@@ -15,8 +22,9 @@ type User struct {
 	PIN      string    `gorm:"not null"`
 	Email    string    `gorm:"not null"`
 
-	IsMaster    bool `gorm:"default:false"`
-	WriteAccess bool `gorm:"default:false"`
+	IsAdmin     bool     `gorm:"default:false"`
+	WriteAccess bool     `gorm:"default:false"`
+	Type        UserType `gorm:"not null"`
 }
 
 func (u *User) BeforeCreate(tx *gorm.DB) (err error) {

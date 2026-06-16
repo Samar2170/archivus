@@ -81,7 +81,7 @@ func registerBusinessUser(h *AuthHandler, req registerRequest) error {
 
 	// business users can be added to drives after creation, if invite code is provided
 	if req.InviteCode != "" {
-		if err := h.service.AddUserToDrive(user.ID.String(), invite.DriveID.String(), "", ""); err != nil {
+		if err := h.service.AddUserToDrive(user.ID.String(), invite.DriveID.String(), "", "", invite.AccessLevel); err != nil {
 			return fmt.Errorf("failed to add user to drive: %w", err)
 		}
 		return nil
@@ -173,10 +173,11 @@ func (h *AuthHandler) RemoveUserFromDrive(w http.ResponseWriter, r *http.Request
 
 func (h *AuthHandler) AddUserToDrive(w http.ResponseWriter, r *http.Request) {
 	type addUserRequest struct {
-		UserID    string `json:"user_id"`
-		DriveID   string `json:"drive_id"`
-		Username  string `json:"username"`
-		DriveSlug string `json:"drive_slug"`
+		UserID      string             `json:"user_id"`
+		DriveID     string             `json:"drive_id"`
+		Username    string             `json:"username"`
+		DriveSlug   string             `json:"drive_slug"`
+		AccessLevel models.AccessLevel `json:"access_level"`
 	}
 	var req addUserRequest
 	if err := reqhelpers.DecodeRequest(r, &req); err != nil {
@@ -184,7 +185,7 @@ func (h *AuthHandler) AddUserToDrive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.service.AddUserToDrive(req.UserID, req.DriveID, req.Username, req.DriveSlug); err != nil {
+	if err := h.service.AddUserToDrive(req.UserID, req.DriveID, req.Username, req.DriveSlug, req.AccessLevel); err != nil {
 		response.BadRequestResponse(w, err.Error())
 		return
 	}

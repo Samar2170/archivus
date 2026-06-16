@@ -14,7 +14,7 @@ type StorageManager interface {
 	CreateDir(subFolder, driveId, userId string) error
 	DeleteDir(relPath, driveId, userId string) error
 	UploadFile(relPath, driveId, userId string, file multipart.File, fileHeader *multipart.FileHeader) error
-	MoveFile(srcRelPath, dstRelPath, driveId, userId string) error
+	// MoveFile(srcRelPath, dstRelPath, driveId, userId string) error
 	DownloadFile(fileId string, driveId, userId string) (*os.File, *models.FileMetadata, error)
 	GetFiles(relPath, driveId, userId string) ([]storage_types.DirEntry, error)
 }

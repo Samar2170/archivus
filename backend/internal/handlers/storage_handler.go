@@ -7,7 +7,6 @@ import (
 	"archivus/pkg/response"
 	"fmt"
 	"net/http"
-	"strconv"
 	"time"
 )
 
@@ -100,38 +99,33 @@ func (h *StorageHandler) UploadFileHandler(w http.ResponseWriter, r *http.Reques
 	response.JSONResponse(w, map[string]string{"message": "files uploaded successfully"})
 }
 
-func (h *StorageHandler) MoveFileHandler(w http.ResponseWriter, r *http.Request) {
-	type moveFileRequest struct {
-		SrcPath string `json:"srcPath"`
-		DstPath string `json:"dstPath"`
-		DriveId string `json:"driveId"`
-	}
-	var req moveFileRequest
-	if err := reqhelpers.DecodeRequest(r, &req); err != nil {
-		response.BadRequestResponse(w, err.Error())
-		return
-	}
-	userID, ok := r.Context().Value(archivus_constants.ContextKey(archivus_constants.UserIdKey)).(string)
-	if !ok {
-		response.UnauthorizedResponse(w, "user ID not found in context")
-		return
-	}
-	if err := h.service.MoveFile(req.SrcPath, req.DstPath, req.DriveId, userID); err != nil {
-		response.BadRequestResponse(w, err.Error())
-		return
-	}
-	response.JSONResponse(w, map[string]string{"message": "file moved successfully"})
-}
+// func (h *StorageHandler) MoveFileHandler(w http.ResponseWriter, r *http.Request) {
+// 	type moveFileRequest struct {
+// 		SrcPath string `json:"srcPath"`
+// 		DstPath string `json:"dstPath"`
+// 		DriveId string `json:"driveId"`
+// 	}
+// 	var req moveFileRequest
+// 	if err := reqhelpers.DecodeRequest(r, &req); err != nil {
+// 		response.BadRequestResponse(w, err.Error())
+// 		return
+// 	}
+// 	userID, ok := r.Context().Value(archivus_constants.ContextKey(archivus_constants.UserIdKey)).(string)
+// 	if !ok {
+// 		response.UnauthorizedResponse(w, "user ID not found in context")
+// 		return
+// 	}
+// 	if err := h.service.MoveFile(req.SrcPath, req.DstPath, req.DriveId, userID); err != nil {
+// 		response.BadRequestResponse(w, err.Error())
+// 		return
+// 	}
+// 	response.JSONResponse(w, map[string]string{"message": "file moved successfully"})
+// }
 
 func (h *StorageHandler) DownloadFileHandler(w http.ResponseWriter, r *http.Request) {
-	fileIdStr := r.URL.Query().Get("fileId")
+	fileId := r.URL.Query().Get("fileId")
 	driveId := r.URL.Query().Get("driveId")
 
-	fileId, err := strconv.ParseInt(fileIdStr, 10, 64)
-	if err != nil {
-		response.BadRequestResponse(w, "invalid file ID")
-		return
-	}
 	userID, ok := r.Context().Value(archivus_constants.ContextKey(archivus_constants.UserIdKey)).(string)
 	if !ok {
 		response.UnauthorizedResponse(w, "user ID not found in context")

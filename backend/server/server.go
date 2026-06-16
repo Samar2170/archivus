@@ -20,7 +20,6 @@ func GetServer(authService *auth.AuthService) *http.Server {
 
 	router.HandleFunc("/auth/login", authHandler.Login).Methods(http.MethodPost)
 	router.HandleFunc("/auth/register", authHandler.Register).Methods(http.MethodPost)
-	router.HandleFunc("/auth/register/master", authHandler.RegisterAsMasterUser).Methods(http.MethodPost)
 
 	protected := router.NewRoute().Subrouter()
 	protected.Use(AuthMiddleware(authService))
@@ -33,13 +32,13 @@ func GetServer(authService *auth.AuthService) *http.Server {
 	protected.HandleFunc("/auth/drive/users", authHandler.GetUsersInDrive).Methods(http.MethodGet)
 	protected.HandleFunc("/auth/user/info", authHandler.GetUserInfoHandler).Methods(http.MethodGet)
 
-	storageHandler := handlers.NewStorageHandler(authService.DirManager)
+	storageHandler := handlers.NewStorageHandler(authService.StorageManager)
 	protected.HandleFunc("/storage/folder/create", storageHandler.CreateFolder).Methods(http.MethodPost)
 	protected.HandleFunc("/storage/folder/delete", storageHandler.DeleteFolder).Methods(http.MethodPost)
 
 	protected.HandleFunc("/storage/file/upload", storageHandler.UploadFileHandler).Methods(http.MethodPost)
 	protected.HandleFunc("/storage/file/download", storageHandler.DownloadFileHandler).Methods(http.MethodGet)
-	protected.HandleFunc("/storage/file/move", storageHandler.MoveFileHandler).Methods(http.MethodPost)
+	// protected.HandleFunc("/storage/file/move", storageHandler.MoveFileHandler).Methods(http.MethodPost)
 	protected.HandleFunc("/storage/files", storageHandler.GetFilesHandler).Methods(http.MethodPost)
 
 	return &http.Server{Handler: router, Addr: ":8080"}

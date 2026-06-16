@@ -40,3 +40,14 @@ func LoadS3Config(path string) (*S3Config, error) {
 
 	return &cfg, nil
 }
+
+func DefaultS3Paths() (string, error) {
+	var err error
+	var projectDir string
+	if DEBUG {
+		projectDir, err = os.Getwd()
+	} else {
+		projectDir, err = os.UserHomeDir()
+	}
+	return filepath.Join(projectDir, "s3_config.yaml"), err
+}

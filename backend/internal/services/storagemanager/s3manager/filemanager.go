@@ -44,37 +44,37 @@ func (s *S3Manager) UploadFile(relPath, driveId, userId string, file multipart.F
 	return nil
 }
 
-func (s *S3Manager) MoveFile(srcRelPath, dstRelPath, driveId, userId string) error {
-	hasAccess, err := s.checkUserDriveWriteAccess(userId, driveId)
-	if err != nil {
-		return err
-	}
-	if !hasAccess {
-		return errors.New("user does not have write access to this drive")
-	}
-	drive, err := s.Store.GetDriveByID(driveId)
-	if err != nil {
-		return fmt.Errorf("s3manager: get drive %q: %w", driveId, err)
-	}
-	srcKey := s3Key(srcRelPath, drive.Slug)
-	dstKey := s3Key(dstRelPath, drive.Slug)
-	md, err := s.Store.GetFileMetadataByRelPath(filepath.Join(drive.Slug, srcRelPath))
-	if err != nil {
-		return fmt.Errorf("s3manager: get metadata for %q: %w", srcRelPath, err)
-	}
-	ctx := context.Background()
-	if err := s.Client.CopyObject(ctx, drive.Slug, srcKey, dstKey); err != nil {
-		return fmt.Errorf("s3manager: copy %q to %q: %w", srcKey, dstKey, err)
-	}
-	if err := s.Client.DeleteObject(ctx, drive.Slug, srcKey); err != nil {
-		_ = s.Client.DeleteObject(ctx, drive.Slug, dstKey)
-		return fmt.Errorf("s3manager: delete source %q after move: %w", srcKey, err)
-	}
-	newRelPath := filepath.Join(drive.Slug, dstRelPath)
-	newAbsPath := fmt.Sprintf("s3://%s/%s", drive.Slug, dstKey)
-	newDirPath := fmt.Sprintf("s3://%s/%s", drive.Slug, filepath.Dir(dstKey))
-	return s.Store.UpdateFileMetadataPaths(md.ID, newAbsPath, newRelPath, newDirPath)
-}
+// func (s *S3Manager) MoveFile(srcRelPath, dstRelPath, driveId, userId string) error {
+// 	hasAccess, err := s.checkUserDriveWriteAccess(userId, driveId)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	if !hasAccess {
+// 		return errors.New("user does not have write access to this drive")
+// 	}
+// 	drive, err := s.Store.GetDriveByID(driveId)
+// 	if err != nil {
+// 		return fmt.Errorf("s3manager: get drive %q: %w", driveId, err)
+// 	}
+// 	srcKey := s3Key(srcRelPath, drive.Slug)
+// 	dstKey := s3Key(dstRelPath, drive.Slug)
+// 	md, err := s.Store.GetFileMetadataByRelPath(filepath.Join(drive.Slug, srcRelPath))
+// 	if err != nil {
+// 		return fmt.Errorf("s3manager: get metadata for %q: %w", srcRelPath, err)
+// 	}
+// 	ctx := context.Background()
+// 	if err := s.Client.CopyObject(ctx, drive.Slug, srcKey, dstKey); err != nil {
+// 		return fmt.Errorf("s3manager: copy %q to %q: %w", srcKey, dstKey, err)
+// 	}
+// 	if err := s.Client.DeleteObject(ctx, drive.Slug, srcKey); err != nil {
+// 		_ = s.Client.DeleteObject(ctx, drive.Slug, dstKey)
+// 		return fmt.Errorf("s3manager: delete source %q after move: %w", srcKey, err)
+// 	}
+// 	newRelPath := filepath.Join(drive.Slug, dstRelPath)
+// 	newAbsPath := fmt.Sprintf("s3://%s/%s", drive.Slug, dstKey)
+// 	newDirPath := fmt.Sprintf("s3://%s/%s", drive.Slug, filepath.Dir(dstKey))
+// 	return s.Store.UpdateFileMetadataPaths(md.ID, newAbsPath, newRelPath, newDirPath)
+// }
 
 func (s *S3Manager) DownloadFile(fileId string, driveId, userId string) (*os.File, *models.FileMetadata, error) {
 	hasAccess, err := s.checkUserHasDriveAccess(userId, driveId)
@@ -92,7 +92,7 @@ func (s *S3Manager) DownloadFile(fileId string, driveId, userId string) (*os.Fil
 	if err != nil {
 		return nil, nil, fmt.Errorf("s3manager: get drive %q: %w", driveId, err)
 	}
-	key := s3Key(md.RelPath, drive.Slug)
+	key := s3Key(md.PathKey, drive.Slug)
 	out, err := s.Client.GetObject(context.Background(), drive.Slug, key)
 	if err != nil {
 		return nil, nil, fmt.Errorf("s3manager: get object %q: %w", key, err)

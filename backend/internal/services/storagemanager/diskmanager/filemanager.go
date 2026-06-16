@@ -48,42 +48,42 @@ func (dm *DiskManager) UploadFile(relPath, driveId, userId string, file multipar
 	return nil
 }
 
-func (dm *DiskManager) MoveFile(srcRelPath, dstRelPath, driveId, userId string) error {
-	hasAccess, err := dm.checkUserDriveWriteAccess(userId, driveId)
-	if err != nil {
-		return err
-	}
-	if !hasAccess {
-		return errors.New("user does not have write access to this drive")
-	}
-	drive, err := dm.Store.GetDriveByID(driveId)
-	if err != nil {
-		return fmt.Errorf("diskmanager: get drive by id %q: %w", driveId, err)
-	}
+// func (dm *DiskManager) MoveFile(srcRelPath, dstRelPath, driveId, userId string) error {
+// 	hasAccess, err := dm.checkUserDriveWriteAccess(userId, driveId)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	if !hasAccess {
+// 		return errors.New("user does not have write access to this drive")
+// 	}
+// 	drive, err := dm.Store.GetDriveByID(driveId)
+// 	if err != nil {
+// 		return fmt.Errorf("diskmanager: get drive by id %q: %w", driveId, err)
+// 	}
 
-	srcAbs := filepath.Join(dm.Home, drive.Slug, srcRelPath)
-	dstAbs := filepath.Join(dm.Home, drive.Slug, dstRelPath)
+// 	srcAbs := filepath.Join(dm.Home, drive.Slug, srcRelPath)
+// 	dstAbs := filepath.Join(dm.Home, drive.Slug, dstRelPath)
 
-	md, err := dm.Store.GetFileMetadataByRelPath(filepath.Join(drive.Slug, srcRelPath))
-	if err != nil {
-		return fmt.Errorf("diskmanager: get file metadata for %q: %w", srcRelPath, err)
-	}
+// 	md, err := dm.Store.GetFileMetadataByRelPath(filepath.Join(drive.Slug, srcRelPath))
+// 	if err != nil {
+// 		return fmt.Errorf("diskmanager: get file metadata for %q: %w", srcRelPath, err)
+// 	}
 
-	if err := os.Rename(srcAbs, dstAbs); err != nil {
-		return fmt.Errorf("diskmanager: move file %q to %q: %w", srcAbs, dstAbs, err)
-	}
+// 	if err := os.Rename(srcAbs, dstAbs); err != nil {
+// 		return fmt.Errorf("diskmanager: move file %q to %q: %w", srcAbs, dstAbs, err)
+// 	}
 
-	newRelPath := filepath.Join(drive.Slug, dstRelPath)
-	newDirPath := filepath.Join(dm.Home, drive.Slug, filepath.Dir(dstRelPath))
+// 	newRelPath := filepath.Join(drive.Slug, dstRelPath)
+// 	newDirPath := filepath.Join(dm.Home, drive.Slug, filepath.Dir(dstRelPath))
 
-	if err := dm.Store.UpdateFileMetadataPaths(md.ID, dstAbs, newRelPath, newDirPath); err != nil {
-		if rerr := os.Rename(dstAbs, srcAbs); rerr != nil {
-			fmt.Printf("warning: failed to revert file move after db error: %v\n", rerr)
-		}
-		return fmt.Errorf("diskmanager: update file metadata after move: %w", err)
-	}
-	return nil
-}
+// 	if err := dm.Store.UpdateFileMetadataPaths(md.ID, dstAbs, newRelPath, newDirPath); err != nil {
+// 		if rerr := os.Rename(dstAbs, srcAbs); rerr != nil {
+// 			fmt.Printf("warning: failed to revert file move after db error: %v\n", rerr)
+// 		}
+// 		return fmt.Errorf("diskmanager: update file metadata after move: %w", err)
+// 	}
+// 	return nil
+// }
 
 func (dm *DiskManager) DownloadFile(fileId string, driveId, userId string) (*os.File, *models.FileMetadata, error) {
 	hasAccess, err := dm.checkUserHasDriveAccess(userId, driveId)
@@ -99,9 +99,9 @@ func (dm *DiskManager) DownloadFile(fileId string, driveId, userId string) (*os.
 		return nil, nil, fmt.Errorf("diskmanager: get file metadata by id %d: %w", fileId, err)
 	}
 
-	f, err := os.Open(md.AbsPath)
+	f, err := os.Open(md.PathKey)
 	if err != nil {
-		return nil, nil, fmt.Errorf("diskmanager: open file %q: %w", md.AbsPath, err)
+		return nil, nil, fmt.Errorf("diskmanager: open file %q: %w", md.PathKey, err)
 	}
 	return f, &md, nil
 }

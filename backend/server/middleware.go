@@ -14,15 +14,8 @@ func HomeMiddleware(as *auth.AuthService) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !config.Config.S3Enabled {
-				exists, err := as.CheckMasterUser()
-				if err != nil {
-					response.InternalServerErrorResponse(w, err.Error())
-					return
-				}
-				if !exists {
-					response.UnauthorizedResponse(w, "master user does not exist, please run archivus setup-drive first")
-					return
-				}
+				next.ServeHTTP(w, r)
+				return
 			}
 		})
 	}

@@ -8,7 +8,6 @@ import (
 	"archivus/internal/services/storagemanager/s3manager"
 	"archivus/internal/store"
 	"archivus/server"
-	"archivus/shell"
 	"fmt"
 	"os"
 
@@ -34,7 +33,7 @@ func main() {
 	}
 	var s3ConfigPath string
 	if *serverMode == "biz" {
-		s3ConfigPath = shell.S3Setup()
+		// s3ConfigPath = shell.S3Setup()
 	}
 	if err := config.Init(*serverMode, s3ConfigPath); err != nil {
 		panic(err)

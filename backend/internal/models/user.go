@@ -24,7 +24,7 @@ type User struct {
 
 	IsAdmin     bool     `gorm:"default:false"`
 	WriteAccess bool     `gorm:"default:false"`
-	Type        UserType `gorm:"not null"`
+	Type        UserType `gorm:"not null;default:personal"`
 }
 
 func (u *User) BeforeCreate(tx *gorm.DB) (err error) {

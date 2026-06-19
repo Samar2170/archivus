@@ -6,6 +6,7 @@ import (
 	"archivus/internal/services/auth"
 	reqhelpers "archivus/pkg/reqHelpers"
 	"archivus/pkg/response"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -70,14 +71,19 @@ func registerBusinessUser(h *AuthHandler, req registerRequest) error {
 	}
 	var invite models.UserInvite
 	var err error
-	invite, err = h.service.ValidateInviteCode(req.InviteCode)
-	if err != nil {
-		return fmt.Errorf("invalid invite code: %w", err)
-	}
-	if invite.ExpiresAt.Before(time.Now()) {
-		return fmt.Errorf("invite code has expired")
+	if req.InviteCode != "" {
+		invite, err = h.service.ValidateInviteCode(req.InviteCode)
+		if err != nil {
+			return fmt.Errorf("invalid invite code: %w", err)
+		}
+		if invite.ExpiresAt.Before(time.Now()) {
+			return fmt.Errorf("invite code has expired")
+		}
 	}
 	user, err := h.service.CreateUser(req.Username, req.Password, req.PIN, req.Email, req.UserType, req.IsAdmin)
+	if err != nil {
+		return fmt.Errorf("failed to create user: %w", err)
+	}
 
 	// business users can be added to drives after creation, if invite code is provided
 	if req.InviteCode != "" {
@@ -108,6 +114,8 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		err = registerBusinessUser(h, req)
 	} else if req.UserType == models.UserTypePersonal {
 		err = registerPersonalUser(h, req)
+	} else {
+		err = errors.New("invalid user type")
 	}
 	if err != nil {
 		response.BadRequestResponse(w, err.Error())

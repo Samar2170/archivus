@@ -32,8 +32,9 @@ func main() {
 		return
 	}
 	var s3ConfigPath string
-	if *serverMode == "biz" {
-		// s3ConfigPath = shell.S3Setup()
+	s3ConfigPath, err = config.DefaultS3Paths()
+	if err != nil && *serverMode == "biz" {
+		panic(err)
 	}
 	if err := config.Init(*serverMode, s3ConfigPath); err != nil {
 		panic(err)

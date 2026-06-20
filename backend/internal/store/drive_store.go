@@ -8,17 +8,18 @@ import (
 	"github.com/google/uuid"
 )
 
-func (s *Store) CreateDrive(name, ownerID, slug, prefix string) (models.Drive, error) {
+func (s *Store) CreateDrive(name, ownerID, slug, prefix string, ownerType models.UserType) (models.Drive, error) {
 	id, err := uuid.Parse(ownerID)
 	if err != nil {
 		return models.Drive{}, fmt.Errorf("invalid owner ID: %w", err)
 	}
 	drive := models.Drive{
-		Name:    name,
-		OwnerID: id,
-		Slug:    slug,
-		Prefix:  prefix,
-		Path:    prefix + "/" + slug,
+		Name:      name,
+		OwnerID:   id,
+		OwnerType: ownerType,
+		Slug:      slug,
+		Prefix:    prefix,
+		Path:      prefix + "/" + slug,
 	}
 	result := s.conn().Create(&drive)
 	return drive, result.Error
@@ -30,12 +31,52 @@ func (s *Store) GetDriveByOwnerID(ownerID string) ([]models.Drive, error) {
 	return drives, result.Error
 }
 
-func (s *Store) GetDriveByUserID(userID string) ([]models.Drive, error) {
-	var drives []models.Drive
-	result := s.conn().Joins("JOIN drive_users ON drive_users.drive_id = drives.id").
-		Where("drive_users.user_id = ?", userID).
-		Find(&drives)
-	return drives, result.Error
+type DriveUser struct {
+	UserID      string
+	DriveID     string
+	DriveName   string
+	AccessLevel models.AccessLevel
+}
+
+func (s *Store) GetDriveByUserID(userID string) ([]DriveUser, error) {
+	var readdrives []models.Drive
+	var writedrives []models.Drive
+	var managerdrives []models.Drive
+	result := s.conn().Joins("JOIN drive_read_users ON drive_read_users.drive_id = drives.id").
+		Where("drive_read_users.user_id = ?", userID).
+		Find(&readdrives)
+	result = s.conn().Joins("JOIN drive_write_users ON drive_write_users.drive_id = drives.id").
+		Where("drive_write_users.user_id = ?", userID).
+		Find(&writedrives)
+	result = s.conn().Joins("JOIN drive_manager_users ON drive_manager_users.drive_id = drives.id").
+		Where("drive_manager_users.user_id = ?", userID).
+		Find(&managerdrives)
+	var driveUserData []DriveUser
+	for _, drive := range readdrives {
+		driveUserData = append(driveUserData, DriveUser{
+			UserID:      userID,
+			DriveID:     drive.ID.String(),
+			DriveName:   drive.Name,
+			AccessLevel: models.AccessLevelRead,
+		})
+	}
+	for _, drive := range writedrives {
+		driveUserData = append(driveUserData, DriveUser{
+			UserID:      userID,
+			DriveID:     drive.ID.String(),
+			DriveName:   drive.Name,
+			AccessLevel: models.AccessLevelWrite,
+		})
+	}
+	for _, drive := range managerdrives {
+		driveUserData = append(driveUserData, DriveUser{
+			UserID:      userID,
+			DriveID:     drive.ID.String(),
+			DriveName:   drive.Name,
+			AccessLevel: models.AccessLevelManager,
+		})
+	}
+	return driveUserData, result.Error
 }
 
 func (s *Store) GetDriveByID(driveID string) (models.Drive, error) {
@@ -58,7 +99,7 @@ func (s *Store) GetDriveByIDOrSlug(idOrSlug string) (models.Drive, error) {
 
 func (s *Store) addUserToDriveRead(userIDParsed, driveIDParsed uuid.UUID) error {
 	return s.conn().Exec(
-		"INSERT OR IGNORE INTO drive_users (drive_id, user_id) VALUES (?, ?)",
+		"INSERT OR IGNORE INTO drive_read_users (drive_id, user_id) VALUES (?, ?)",
 		driveIDParsed, userIDParsed,
 	).Error
 }

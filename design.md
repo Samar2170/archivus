@@ -1,9 +1,11 @@
 #### Enterprise/Home Shared Drive Model
 
-1. Setup Drive -> Create Master user (each drive has a unique id)
-2. Create further users -> Approved by master, read/write access
-3. Master user can list users and remove or add them
+1. Private Users -> signup -> create drive for them 
+2. Private users (home hosted) -> master user created during installation -> create one big drive
 
+2. Business Users -> signup as admin user -> create drive manually -> invite other users
+3. Business Users can be admins or non-admins
+4. Admins can invite other users to their drive
 
 
 #### Design

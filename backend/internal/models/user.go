@@ -38,6 +38,7 @@ const (
 	AccessLevelRead    AccessLevel = "read"
 	AccessLevelWrite   AccessLevel = "write"
 	AccessLevelManager AccessLevel = "manager"
+	AccessLevelOwner   AccessLevel = "owner"
 )
 
 type UserInvite struct {

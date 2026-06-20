@@ -70,7 +70,7 @@ func (a *AuthService) SetupNewDrive(name, userID string) (models.Drive, error) {
 		return models.Drive{}, err
 	}
 
-	drive, err := a.Store.CreateDrive(name, userID, slug, prefix)
+	drive, err := a.Store.CreateDrive(name, userID, slug, prefix, user.Type)
 	if err != nil {
 		if cleanupErr := a.StorageManager.DeleteDriveDir(name); cleanupErr != nil {
 			fmt.Printf("warning: failed to clean up drive directory after db error: %v\n", cleanupErr)

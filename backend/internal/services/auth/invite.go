@@ -111,9 +111,8 @@ func (a *AuthService) GetUsersInDrive(userId string) ([]UsersInDriveResponse, er
 }
 
 type UserInfoResponse struct {
-	User        models.User    `json:"user"`
-	Drives      []models.Drive `json:"drives"`
-	OwnedDrives []models.Drive `json:"owned_drives"`
+	User   models.User       `json:"user"`
+	Drives []store.DriveUser `json:"drives"`
 }
 
 func (h *AuthService) GetUserInfo(userID string) (UserInfoResponse, error) {
@@ -127,15 +126,23 @@ func (h *AuthService) GetUserInfo(userID string) (UserInfoResponse, error) {
 			return UserInfoResponse{}, fmt.Errorf("failed to get drives for user: %w", err)
 		}
 	}
+
 	ownedDrives, err := h.Store.GetDriveByOwnerID(user.ID.String())
 	if err != nil {
 		if err != store.ErrRecordNotFound {
 			return UserInfoResponse{}, fmt.Errorf("failed to get owned drives for user: %w", err)
 		}
 	}
+	for _, drive := range ownedDrives {
+		drives = append(drives, store.DriveUser{
+			UserID:      user.ID.String(),
+			DriveID:     drive.ID.String(),
+			DriveName:   drive.Name,
+			AccessLevel: models.AccessLevelOwner,
+		})
+	}
 	return UserInfoResponse{
-		User:        user,
-		Drives:      drives,
-		OwnedDrives: ownedDrives,
+		User:   user,
+		Drives: drives,
 	}, nil
 }

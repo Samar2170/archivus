@@ -13,9 +13,9 @@ type Drive struct {
 	Owner   User      `gorm:"foreignKey:OwnerID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
 	OwnerID uuid.UUID `gorm:"type:uuid;not null"`
 
-	ReadUsers    []User `gorm:"many2many:drive_users;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
-	WriteUsers   []User `gorm:"many2many:drive_users;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
-	ManagerUsers []User `gorm:"many2many:drive_users;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
+	ReadUsers    []User `gorm:"many2many:drive_read_users;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
+	WriteUsers   []User `gorm:"many2many:drive_write_users;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
+	ManagerUsers []User `gorm:"many2many:drive_manager_users;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
 
 	OwnerType UserType `gorm:"not null"`
 

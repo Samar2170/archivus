@@ -129,22 +129,25 @@ func (s *Store) AddUserToDrive(ctx context.Context, userID, driveID string, acce
 	}
 
 	return s.Transaction(func(tx *Store) error {
-		if err := tx.addUserToDriveRead(userIDParsed, driveIDParsed); err != nil {
-			return fmt.Errorf("granting read: %w", err)
-		}
 		if access == models.AccessLevelRead {
+			if err := tx.addUserToDriveRead(userIDParsed, driveIDParsed); err != nil {
+				return fmt.Errorf("granting read: %w", err)
+			}
 			return nil
-		}
-		if err := tx.addUserToDriveWrite(userIDParsed, driveIDParsed); err != nil {
-			return fmt.Errorf("granting write: %w", err)
 		}
 		if access == models.AccessLevelWrite {
+			if err := tx.addUserToDriveWrite(userIDParsed, driveIDParsed); err != nil {
+				return fmt.Errorf("granting write: %w", err)
+			}
 			return nil
 		}
-		if err := tx.addUserToDriveManager(userIDParsed, driveIDParsed); err != nil {
-			return fmt.Errorf("granting manager: %w", err)
+		if access == models.AccessLevelManager {
+			if err := tx.addUserToDriveManager(userIDParsed, driveIDParsed); err != nil {
+				return fmt.Errorf("granting manager: %w", err)
+			}
+			return nil
 		}
-		return nil
+		return fmt.Errorf("invalid access level: %s", access)
 	})
 }
 func (s *Store) GetUsersByDriveID(driveID string) ([]models.User, error) {

@@ -41,6 +41,18 @@ const (
 	AccessLevelOwner   AccessLevel = "owner"
 )
 
+var accessLevelMap = map[string]int{
+	"read": 1, "write": 2, "manager": 3, "owner": 4,
+}
+
+func checkHasAccess(accessLevel string, accessLevelRq string) bool {
+	if accessLevelMap[accessLevel] >= accessLevelMap[accessLevelRq] {
+		return true
+	}
+	return false
+
+}
+
 type UserInvite struct {
 	*gorm.Model
 	ID         uuid.UUID `gorm:"type:uuid;primaryKey"`

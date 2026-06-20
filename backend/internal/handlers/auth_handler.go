@@ -128,7 +128,6 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 }
 
 type inviteUserRequest struct {
-	UserID  string             `json:"user_id"`
 	DriveID string             `json:"drive_id"`
 	Access  models.AccessLevel `json:"access"`
 }

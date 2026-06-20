@@ -49,6 +49,9 @@ func (a *AuthService) AddUserToDrive(userID, driveID, username, driveSlug string
 	var drive models.Drive
 	var user models.User
 	var err error
+	if accessLevel == "" {
+		accessLevel = models.AccessLevelRead
+	}
 	user, err = a.Store.ResolveUserByUsernameOrId(username, userID)
 	if err != nil {
 		return fmt.Errorf("invalid user: %w", err)

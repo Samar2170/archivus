@@ -163,21 +163,42 @@ func (s *Store) GetUsersByDriveID(driveID string) ([]models.User, error) {
 	return drive.ReadUsers, nil
 }
 
-func (s *Store) CheckIfUserInDrive(userID, driveID string) (bool, error) {
+func (s *Store) CheckIfUserInDrive(userID, driveID string) (bool, models.AccessLevel, error) {
 	userIDParsed, err := uuid.Parse(userID)
 	if err != nil {
-		return false, fmt.Errorf("invalid user ID: %w", err)
+		return false, "", fmt.Errorf("invalid user ID: %w", err)
 	}
 	driveIDParsed, err := uuid.Parse(driveID)
 	if err != nil {
-		return false, fmt.Errorf("invalid drive ID: %w", err)
+		return false, "", fmt.Errorf("invalid drive ID: %w", err)
 	}
 	var count int64
 	fmt.Println(driveID, driveIDParsed, userID, userIDParsed)
-	result := s.conn().Table("drive_users").
+	readResult := s.conn().Table("drive_read_users").
 		Where("drive_id = ? AND user_id = ?", driveIDParsed, userIDParsed).
 		Count(&count)
-	return count > 0, result.Error
+	if readResult.Error != nil {
+		return false, "", fmt.Errorf("failed to check if user is in drive: %w", readResult.Error)
+	} else if count > 0 {
+		return true, models.AccessLevelRead, nil
+	}
+	writeResult := s.conn().Table("drive_write_users").
+		Where("drive_id = ? AND user_id = ?", driveIDParsed, userIDParsed).
+		Count(&count)
+	if writeResult.Error != nil {
+		return false, "", fmt.Errorf("failed to check if user is in drive: %w", writeResult.Error)
+	} else if count > 0 {
+		return true, models.AccessLevelWrite, nil
+	}
+	managerResult := s.conn().Table("drive_manager_users").
+		Where("drive_id = ? AND user_id = ?", driveIDParsed, userIDParsed).
+		Count(&count)
+	if managerResult.Error != nil {
+		return false, "", fmt.Errorf("failed to check if user is in drive: %w", managerResult.Error)
+	} else if count > 0 {
+		return true, models.AccessLevelManager, nil
+	}
+	return false, "", nil
 }
 
 func (s *Store) RemoveUserFromDrive(userID, driveID string) error {
@@ -189,10 +210,25 @@ func (s *Store) RemoveUserFromDrive(userID, driveID string) error {
 	if err != nil {
 		return fmt.Errorf("invalid drive ID: %w", err)
 	}
-	return s.conn().Exec(
-		"DELETE FROM drive_users WHERE drive_id = ? AND user_id = ?",
+	err = s.conn().Exec(
+		"DELETE FROM drive_read_users WHERE drive_id = ? AND user_id = ?",
 		driveIDParsed, userIDParsed,
 	).Error
+	if err != nil {
+		return fmt.Errorf("failed to remove user from drive: %w", err)
+	}
+	err = s.conn().Exec(
+		"DELETE FROM drive_write_users WHERE drive_id = ? AND user_id = ?",
+		driveIDParsed, userIDParsed,
+	).Error
+	if err != nil {
+		return fmt.Errorf("failed to remove user from drive: %w", err)
+	}
+	err = s.conn().Exec(
+		"DELETE FROM drive_manager_users WHERE drive_id = ? AND user_id = ?",
+		driveIDParsed, userIDParsed,
+	).Error
+	return err
 }
 
 func (s *Store) ResolveDriveBySlugOrID(slug, driveId string) (models.Drive, error) {

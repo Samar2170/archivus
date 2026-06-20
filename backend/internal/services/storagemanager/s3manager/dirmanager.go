@@ -1,6 +1,7 @@
 package s3manager
 
 import (
+	"archivus/internal/models"
 	"archivus/internal/store"
 	"context"
 	"errors"
@@ -38,14 +39,26 @@ func (s *S3Manager) checkUserDriveWriteAccess(userID, driveID string) (bool, err
 	if err != nil {
 		return false, fmt.Errorf("s3manager: get user %q: %w", userID, err)
 	}
-	if !user.WriteAccess {
-		return false, nil
+	drive, err := s.Store.GetDriveByID(driveID)
+	if err != nil {
+		return false, fmt.Errorf("s3manager: get drive %q: %w", driveID, err)
 	}
-	return s.Store.CheckIfUserInDrive(userID, driveID)
+	if drive.OwnerID == user.ID {
+		return true, nil
+	}
+	inDrive, accessLevel, err := s.Store.CheckIfUserInDrive(userID, driveID)
+	if inDrive && models.CompareAccessLevels(accessLevel, models.AccessLevelWrite) {
+		return true, nil
+	}
+	return false, nil
 }
 
 func (s *S3Manager) checkUserHasDriveAccess(userID, driveID string) (bool, error) {
-	return s.Store.CheckIfUserInDrive(userID, driveID)
+	inDrive, _, err := s.Store.CheckIfUserInDrive(userID, driveID)
+	if err != nil {
+		return false, fmt.Errorf("s3manager: check if user in drive: %w", err)
+	}
+	return inDrive, nil
 }
 
 func (s *S3Manager) CreateDir(subFolder, driveId, userId string) error {

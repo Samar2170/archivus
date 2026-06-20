@@ -1,6 +1,7 @@
 package diskmanager
 
 import (
+	"archivus/internal/models"
 	"archivus/internal/store"
 	"errors"
 	"fmt"
@@ -60,18 +61,22 @@ func (dm *DiskManager) checkUserDriveWriteAccess(userID, driveID string) (bool, 
 	if err != nil {
 		return false, fmt.Errorf("diskmanager: get user by id %q: %w", userID, err)
 	}
-	if !user.WriteAccess {
-		return false, nil
-	}
-	inDrive, err := dm.Store.CheckIfUserInDrive(userID, driveID)
+	drive, err := dm.Store.GetDriveByID(driveID)
 	if err != nil {
-		return false, fmt.Errorf("diskmanager: check if user in drive: %w", err)
+		return false, fmt.Errorf("diskmanager: get drive by id %q: %w", driveID, err)
 	}
-	return inDrive, nil
+	if drive.OwnerID == user.ID {
+		return true, nil
+	}
+	inDrive, accessLevel, err := dm.Store.CheckIfUserInDrive(userID, driveID)
+	if inDrive && models.CompareAccessLevels(accessLevel, models.AccessLevelWrite) {
+		return true, nil
+	}
+	return false, nil
 }
 
 func (dm *DiskManager) checkUserHasDriveAccess(userID, driveID string) (bool, error) {
-	inDrive, err := dm.Store.CheckIfUserInDrive(userID, driveID)
+	inDrive, _, err := dm.Store.CheckIfUserInDrive(userID, driveID)
 	if err != nil {
 		return false, fmt.Errorf("diskmanager: check if user in drive: %w", err)
 	}

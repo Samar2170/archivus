@@ -38,20 +38,13 @@ func (a *AuthService) CreateUser(username, password, pin, email string, userType
 	hashedPassword := utils.HashString(password)
 	hashedPIN := utils.HashString(pin)
 
-	var writeAccess bool
-	if isAdmin || userType == models.UserTypePersonal {
-		writeAccess = true
-	} else {
-		writeAccess = false
-	}
 	user = models.User{
-		Username:    username,
-		Password:    hashedPassword,
-		PIN:         hashedPIN,
-		Email:       email,
-		IsAdmin:     isAdmin,
-		Type:        userType,
-		WriteAccess: writeAccess,
+		Username: username,
+		Password: hashedPassword,
+		PIN:      hashedPIN,
+		Email:    email,
+		IsAdmin:  isAdmin,
+		Type:     userType,
 	}
 	return a.Store.CreateUser(user)
 }

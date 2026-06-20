@@ -22,9 +22,9 @@ type User struct {
 	PIN      string    `gorm:"not null"`
 	Email    string    `gorm:"not null"`
 
-	IsAdmin     bool     `gorm:"default:false"`
-	WriteAccess bool     `gorm:"default:false"`
-	Type        UserType `gorm:"not null;default:personal"`
+	IsAdmin bool `gorm:"default:false"`
+	// WriteAccess bool     `gorm:"default:false"` // tracked at drive Level
+	Type UserType `gorm:"not null;default:personal"`
 }
 
 func (u *User) BeforeCreate(tx *gorm.DB) (err error) {
@@ -41,11 +41,14 @@ const (
 	AccessLevelOwner   AccessLevel = "owner"
 )
 
-var accessLevelMap = map[string]int{
-	"read": 1, "write": 2, "manager": 3, "owner": 4,
+var accessLevelMap = map[AccessLevel]int{
+	AccessLevelRead:    1,
+	AccessLevelWrite:   2,
+	AccessLevelManager: 3,
+	AccessLevelOwner:   4,
 }
 
-func checkHasAccess(accessLevel string, accessLevelRq string) bool {
+func CompareAccessLevels(accessLevel AccessLevel, accessLevelRq AccessLevel) bool {
 	if accessLevelMap[accessLevel] >= accessLevelMap[accessLevelRq] {
 		return true
 	}

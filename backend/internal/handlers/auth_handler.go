@@ -159,6 +159,7 @@ func (h *AuthHandler) InviteUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AuthHandler) RemoveUserFromDrive(w http.ResponseWriter, r *http.Request) {
+	userId := r.Context().Value(archivus_constants.ContextKey(archivus_constants.UserIdKey)).(string)
 	type removeUserRequest struct {
 		UserID    string `json:"user_id"`
 		DriveID   string `json:"drive_id"`
@@ -171,7 +172,7 @@ func (h *AuthHandler) RemoveUserFromDrive(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if err := h.service.RemoveUserFromDrive(req.UserID, req.DriveID, req.Username, req.DriveSlug); err != nil {
+	if err := h.service.RemoveUserFromDrive(req.UserID, req.DriveID, req.Username, req.DriveSlug, userId); err != nil {
 		response.BadRequestResponse(w, err.Error())
 		return
 	}

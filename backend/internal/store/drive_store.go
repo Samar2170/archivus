@@ -150,17 +150,22 @@ func (s *Store) AddUserToDrive(ctx context.Context, userID, driveID string, acce
 		return fmt.Errorf("invalid access level: %s", access)
 	})
 }
-func (s *Store) GetUsersByDriveID(driveID string) ([]models.User, error) {
+func (s *Store) GetUsersByDriveID(driveID string) (map[string][]models.User, error) {
 	driveIDParsed, err := uuid.Parse(driveID)
 	if err != nil {
 		return nil, fmt.Errorf("invalid drive ID: %w", err)
 	}
 	var drive models.Drive
-	result := s.conn().Preload("Users").First(&drive, "id = ?", driveIDParsed.String())
+	result := s.conn().Preload("ReadUsers").Preload("WriteUsers").Preload("ManagerUsers").First(&drive, "id = ?", driveIDParsed)
 	if result.Error != nil {
 		return nil, result.Error
 	}
-	return drive.ReadUsers, nil
+	users := map[string][]models.User{
+		"read":    drive.ReadUsers,
+		"write":   drive.WriteUsers,
+		"manager": drive.ManagerUsers,
+	}
+	return users, nil
 }
 
 func (s *Store) CheckIfUserInDrive(userID, driveID string) (bool, models.AccessLevel, error) {

@@ -31,6 +31,7 @@ func GetServer(authService *auth.AuthService) *http.Server {
 
 	protected.HandleFunc("/auth/drive/users", authHandler.GetUsersInDrive).Methods(http.MethodGet)
 	protected.HandleFunc("/auth/user/info", authHandler.GetUserInfoHandler).Methods(http.MethodGet)
+	protected.HandleFunc("/auth/drive/info", authHandler.GetDriveInfoHandler).Methods(http.MethodGet)
 
 	storageHandler := handlers.NewStorageHandler(authService.StorageManager)
 	protected.HandleFunc("/storage/folder/create", storageHandler.CreateFolder).Methods(http.MethodPost)

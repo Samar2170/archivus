@@ -219,3 +219,14 @@ func (h *AuthHandler) GetUserInfoHandler(w http.ResponseWriter, r *http.Request)
 	}
 	response.JSONResponse(w, userInfo)
 }
+
+func (h *AuthHandler) GetDriveInfoHandler(w http.ResponseWriter, r *http.Request) {
+	userId := r.Context().Value(archivus_constants.ContextKey(archivus_constants.UserIdKey)).(string)
+	driveId := r.URL.Query().Get("drive_id")
+	driveInfo, err := h.service.GetDriveInfo(userId, driveId)
+	if err != nil {
+		response.BadRequestResponse(w, err.Error())
+		return
+	}
+	response.JSONResponse(w, driveInfo)
+}

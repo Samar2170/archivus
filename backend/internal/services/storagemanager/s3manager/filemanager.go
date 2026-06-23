@@ -15,7 +15,7 @@ import (
 )
 
 func (s *S3Manager) UploadFile(relPath, driveId, userId string, file multipart.File, fileHeader *multipart.FileHeader) error {
-	hasAccess, err := s.checkUserDriveWriteAccess(userId, driveId)
+	hasAccess, err := s.CheckUserDriveWriteAccess(userId, driveId)
 	if err != nil {
 		return err
 	}
@@ -45,7 +45,7 @@ func (s *S3Manager) UploadFile(relPath, driveId, userId string, file multipart.F
 }
 
 // func (s *S3Manager) MoveFile(srcRelPath, dstRelPath, driveId, userId string) error {
-// 	hasAccess, err := s.checkUserDriveWriteAccess(userId, driveId)
+// 	hasAccess, err := s.CheckUserDriveWriteAccess(userId, driveId)
 // 	if err != nil {
 // 		return err
 // 	}
@@ -77,7 +77,7 @@ func (s *S3Manager) UploadFile(relPath, driveId, userId string, file multipart.F
 // }
 
 func (s *S3Manager) DownloadFile(fileId string, driveId, userId string) (*os.File, *models.FileMetadata, error) {
-	hasAccess, err := s.checkUserHasDriveAccess(userId, driveId)
+	hasAccess, err := s.CheckUserHasDriveAccess(userId, driveId)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -117,7 +117,7 @@ func (s *S3Manager) DownloadFile(fileId string, driveId, userId string) (*os.Fil
 }
 
 func (s *S3Manager) GetFiles(relPath, driveId, userId string) ([]storage_types.DirEntry, error) {
-	hasAccess, err := s.checkUserHasDriveAccess(userId, driveId)
+	hasAccess, err := s.CheckUserHasDriveAccess(userId, driveId)
 	if err != nil {
 		return nil, err
 	}

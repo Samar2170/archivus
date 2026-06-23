@@ -1,7 +1,7 @@
 package s3manager
 
 import (
-	"archivus/internal/models"
+	"archivus/internal/services/storagemanager/base"
 	"archivus/internal/store"
 	"context"
 	"errors"
@@ -11,8 +11,8 @@ import (
 )
 
 type S3Manager struct {
+	base.BaseManager
 	Client *Client
-	Store  *store.Store
 }
 
 func GetS3Manager(s *store.Store, accountID, accessKey, secretKey, bucketName string) (*S3Manager, error) {
@@ -20,7 +20,7 @@ func GetS3Manager(s *store.Store, accountID, accessKey, secretKey, bucketName st
 	if err != nil {
 		return nil, err
 	}
-	return &S3Manager{Client: client, Store: s}, nil
+	return &S3Manager{BaseManager: base.BaseManager{Store: s}, Client: client}, nil
 }
 
 func (s *S3Manager) CreateDriveDir(driveName string) (string, error) {
@@ -34,38 +34,11 @@ func (s *S3Manager) DeleteDriveDir(driveName string) error {
 	return nil
 }
 
-func (s *S3Manager) checkUserDriveWriteAccess(userID, driveID string) (bool, error) {
-	user, err := s.Store.GetUserByID(userID)
-	if err != nil {
-		return false, fmt.Errorf("s3manager: get user %q: %w", userID, err)
-	}
-	drive, err := s.Store.GetDriveByID(driveID)
-	if err != nil {
-		return false, fmt.Errorf("s3manager: get drive %q: %w", driveID, err)
-	}
-	if drive.OwnerID == user.ID {
-		return true, nil
-	}
-	inDrive, accessLevel, err := s.Store.CheckIfUserInDrive(userID, driveID)
-	if inDrive && models.CompareAccessLevels(accessLevel, models.AccessLevelWrite) {
-		return true, nil
-	}
-	return false, nil
-}
-
-func (s *S3Manager) checkUserHasDriveAccess(userID, driveID string) (bool, error) {
-	inDrive, _, err := s.Store.CheckIfUserInDrive(userID, driveID)
-	if err != nil {
-		return false, fmt.Errorf("s3manager: check if user in drive: %w", err)
-	}
-	return inDrive, nil
-}
-
 func (s *S3Manager) CreateDir(subFolder, driveId, userId string) error {
 	if subFolder == "" {
 		return errors.New("subFolder cannot be empty")
 	}
-	hasAccess, err := s.checkUserDriveWriteAccess(userId, driveId)
+	hasAccess, err := s.CheckUserDriveWriteAccess(userId, driveId)
 	if err != nil {
 		return err
 	}
@@ -94,7 +67,7 @@ func (s *S3Manager) CreateDir(subFolder, driveId, userId string) error {
 }
 
 func (s *S3Manager) DeleteDir(relPath, driveId, userId string) error {
-	hasAccess, err := s.checkUserDriveWriteAccess(userId, driveId)
+	hasAccess, err := s.CheckUserDriveWriteAccess(userId, driveId)
 	if err != nil {
 		return err
 	}

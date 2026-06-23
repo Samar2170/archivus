@@ -12,7 +12,7 @@ import (
 )
 
 func (dm *DiskManager) UploadFile(relPath, driveId, userId string, file multipart.File, fileHeader *multipart.FileHeader) error {
-	hasAccess, err := dm.checkUserDriveWriteAccess(userId, driveId)
+	hasAccess, err := dm.CheckUserDriveWriteAccess(userId, driveId)
 	if err != nil {
 		return err
 	}
@@ -49,7 +49,7 @@ func (dm *DiskManager) UploadFile(relPath, driveId, userId string, file multipar
 }
 
 // func (dm *DiskManager) MoveFile(srcRelPath, dstRelPath, driveId, userId string) error {
-// 	hasAccess, err := dm.checkUserDriveWriteAccess(userId, driveId)
+// 	hasAccess, err := dm.CheckUserDriveWriteAccess(userId, driveId)
 // 	if err != nil {
 // 		return err
 // 	}
@@ -86,7 +86,7 @@ func (dm *DiskManager) UploadFile(relPath, driveId, userId string, file multipar
 // }
 
 func (dm *DiskManager) DownloadFile(fileId string, driveId, userId string) (*os.File, *models.FileMetadata, error) {
-	hasAccess, err := dm.checkUserHasDriveAccess(userId, driveId)
+	hasAccess, err := dm.CheckUserHasDriveAccess(userId, driveId)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -107,7 +107,7 @@ func (dm *DiskManager) DownloadFile(fileId string, driveId, userId string) (*os.
 }
 
 func (dm *DiskManager) GetFiles(relPath, driveId, userId string) ([]storage_types.DirEntry, error) {
-	hasAccess, err := dm.checkUserHasDriveAccess(userId, driveId)
+	hasAccess, err := dm.CheckUserHasDriveAccess(userId, driveId)
 	if err != nil {
 		return nil, err
 	}

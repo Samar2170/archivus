@@ -1,7 +1,7 @@
 package diskmanager
 
 import (
-	"archivus/internal/models"
+	"archivus/internal/services/storagemanager/base"
 	"archivus/internal/store"
 	"errors"
 	"fmt"
@@ -10,15 +10,15 @@ import (
 )
 
 type DiskManager struct {
+	base.BaseManager
 	Home      string
 	UsersHome string
-	Store     *store.Store
 }
 
-func GetDiskManager(store *store.Store, home string) *DiskManager {
+func GetDiskManager(s *store.Store, home string) *DiskManager {
 	return &DiskManager{
-		Home:  home,
-		Store: store,
+		BaseManager: base.BaseManager{Store: s},
+		Home:        home,
 	}
 }
 
@@ -56,39 +56,12 @@ func (dm *DiskManager) DeleteDriveDir(slug string) error {
 // 	return nil
 // }
 
-func (dm *DiskManager) checkUserDriveWriteAccess(userID, driveID string) (bool, error) {
-	user, err := dm.Store.GetUserByID(userID)
-	if err != nil {
-		return false, fmt.Errorf("diskmanager: get user by id %q: %w", userID, err)
-	}
-	drive, err := dm.Store.GetDriveByID(driveID)
-	if err != nil {
-		return false, fmt.Errorf("diskmanager: get drive by id %q: %w", driveID, err)
-	}
-	if drive.OwnerID == user.ID {
-		return true, nil
-	}
-	inDrive, accessLevel, err := dm.Store.CheckIfUserInDrive(userID, driveID)
-	if inDrive && models.CompareAccessLevels(accessLevel, models.AccessLevelWrite) {
-		return true, nil
-	}
-	return false, nil
-}
-
-func (dm *DiskManager) checkUserHasDriveAccess(userID, driveID string) (bool, error) {
-	inDrive, _, err := dm.Store.CheckIfUserInDrive(userID, driveID)
-	if err != nil {
-		return false, fmt.Errorf("diskmanager: check if user in drive: %w", err)
-	}
-	return inDrive, nil
-}
-
 func (dm *DiskManager) CreateDir(subFolder, driveId, userId string) error {
 	var dirPath string
 	if subFolder == "" {
 		return errors.New("subFolder cannot be empty")
 	}
-	hasAccess, err := dm.checkUserDriveWriteAccess(userId, driveId)
+	hasAccess, err := dm.CheckUserDriveWriteAccess(userId, driveId)
 	if err != nil {
 		return err
 	}
@@ -122,7 +95,7 @@ func (dm *DiskManager) CreateDir(subFolder, driveId, userId string) error {
 
 func (dm *DiskManager) DeleteDir(relPath, driveId, userId string) error {
 	dirPath := filepath.Join(dm.Home, relPath)
-	hasAccess, err := dm.checkUserDriveWriteAccess(userId, driveId)
+	hasAccess, err := dm.CheckUserDriveWriteAccess(userId, driveId)
 	if err != nil {
 		return err
 	}

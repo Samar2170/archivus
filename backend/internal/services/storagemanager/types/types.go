@@ -1,7 +1,7 @@
 package types
 
 type DirEntry struct {
-	ID        uint
+	ID        string
 	Name      string
 	IsDir     bool
 	Extension string

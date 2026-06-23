@@ -33,6 +33,13 @@ func (b *BaseManager) CheckUserDriveWriteAccess(userID, driveID string) (bool, e
 }
 
 func (b *BaseManager) CheckUserHasDriveAccess(userID, driveID string) (bool, error) {
+	drive, err := b.Store.GetDriveByID(driveID)
+	if err != nil {
+		return false, fmt.Errorf("storagemanager: get drive %q: %w", driveID, err)
+	}
+	if drive.OwnerID.String() == userID {
+		return true, nil
+	}
 	inDrive, _, err := b.Store.CheckIfUserInDrive(userID, driveID)
 	if err != nil {
 		return false, fmt.Errorf("storagemanager: check if user in drive: %w", err)

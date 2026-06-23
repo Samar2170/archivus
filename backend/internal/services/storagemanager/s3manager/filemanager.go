@@ -86,7 +86,7 @@ func (s *S3Manager) DownloadFile(fileId string, driveId, userId string) (*os.Fil
 	}
 	md, err := s.Store.GetFileMetadataByID(fileId)
 	if err != nil {
-		return nil, nil, fmt.Errorf("s3manager: get file metadata %d: %w", fileId, err)
+		return nil, nil, fmt.Errorf("s3manager: get file metadata %q: %w", fileId, err)
 	}
 	drive, err := s.Store.GetDriveByID(driveId)
 	if err != nil {
@@ -138,14 +138,14 @@ func (s *S3Manager) GetFiles(relPath, driveId, userId string) ([]storage_types.D
 		return nil, fmt.Errorf("s3manager: list %q: %w", prefix, err)
 	}
 	var dirEntries []storage_types.DirEntry
-	for i, e := range entries {
+	for _, e := range entries {
 		name := filepath.Base(strings.TrimSuffix(e.Key, "/"))
 		signedURL := ""
 		if !e.IsDir {
 			signedURL, _ = s.Client.PresignGetObject(ctx, drive.Slug, e.Key, 15*time.Minute)
 		}
 		dirEntries = append(dirEntries, storage_types.DirEntry{
-			ID:             uint(i),
+			ID:             "",
 			Name:           name,
 			IsDir:          e.IsDir,
 			Extension:      filepath.Ext(name),

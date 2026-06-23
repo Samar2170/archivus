@@ -86,13 +86,14 @@ func (a *AuthService) RemoveUserFromDrive(removeUserID, driveID, username, drive
 	if removeUserID == userId {
 		return fmt.Errorf("cannot remove self")
 	}
+	isOwner := drive.OwnerID.String() == userId
 	if removeUserAccessLevel == models.AccessLevelManager {
-		if accessLevel != models.AccessLevelOwner && drive.OwnerID.String() != userId {
+		if accessLevel != models.AccessLevelOwner && !isOwner {
 			return fmt.Errorf("only owner can remove manager")
 		}
 	}
-	if accessLevel != models.AccessLevelManager && accessLevel != models.AccessLevelOwner {
+	if accessLevel != models.AccessLevelManager && accessLevel != models.AccessLevelOwner && !isOwner {
 		return fmt.Errorf("only drive managers can remove users")
 	}
-	return a.Store.RemoveUserFromDrive(userId, driveID)
+	return a.Store.RemoveUserFromDrive(removeUserID, driveID)
 }

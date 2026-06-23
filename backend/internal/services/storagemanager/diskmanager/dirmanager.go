@@ -57,7 +57,6 @@ func (dm *DiskManager) DeleteDriveDir(slug string) error {
 // }
 
 func (dm *DiskManager) CreateDir(subFolder, driveId, userId string) error {
-	var dirPath string
 	if subFolder == "" {
 		return errors.New("subFolder cannot be empty")
 	}
@@ -75,18 +74,16 @@ func (dm *DiskManager) CreateDir(subFolder, driveId, userId string) error {
 	}
 
 	relPath := filepath.Join(drive.Slug, subFolder)
-	dirPath = filepath.Join(dm.Home, relPath)
+	dirPath := filepath.Join(dm.Home, relPath)
 	if err := os.MkdirAll(dirPath, 0755); err != nil {
 		return fmt.Errorf("diskmanager: create dir %q: %w", dirPath, err)
 	}
-	subFolderSplit := filepath.SplitList(subFolder)
-	name := subFolderSplit[len(subFolderSplit)-1]
+	name := filepath.Base(subFolder)
 
-	_, err = dm.Store.CreateDirectoryMetadata(name, dirPath, relPath, fmt.Sprintf("%d", drive.ID))
+	_, err = dm.Store.CreateDirectoryMetadata(name, dirPath, relPath, drive.ID.String())
 	if err != nil {
-		err = dm.DeleteDir(relPath, driveId, userId) // cleanup created directory on failure
-		if err != nil {
-			fmt.Printf("warning: failed to clean up directory after db error: %v\n", err)
+		if cleanupErr := os.RemoveAll(dirPath); cleanupErr != nil {
+			fmt.Printf("warning: failed to clean up directory after db error: %v\n", cleanupErr)
 		}
 		return fmt.Errorf("diskmanager: create directory metadata for dir %q: %w", dirPath, err)
 	}
@@ -94,7 +91,6 @@ func (dm *DiskManager) CreateDir(subFolder, driveId, userId string) error {
 }
 
 func (dm *DiskManager) DeleteDir(relPath, driveId, userId string) error {
-	dirPath := filepath.Join(dm.Home, relPath)
 	hasAccess, err := dm.CheckUserDriveWriteAccess(userId, driveId)
 	if err != nil {
 		return err
@@ -103,10 +99,18 @@ func (dm *DiskManager) DeleteDir(relPath, driveId, userId string) error {
 		return errors.New("user does not have write access to this drive")
 	}
 
+	drive, err := dm.Store.GetDriveByID(driveId)
+	if err != nil {
+		return fmt.Errorf("diskmanager: get drive by id %q: %w", driveId, err)
+	}
+
+	fullRelPath := filepath.Join(drive.Slug, relPath)
+	dirPath := filepath.Join(dm.Home, fullRelPath)
+
 	if err := os.RemoveAll(dirPath); err != nil {
 		return fmt.Errorf("storagemanager: delete dir %q: %w", dirPath, err)
 	}
-	if err := dm.Store.DeleteDirectoryMetadataByRelPath(relPath); err != nil {
+	if err := dm.Store.DeleteDirectoryMetadataByRelPath(fullRelPath); err != nil {
 		return fmt.Errorf("storagemanager: delete directory metadata for dir %q: %w", dirPath, err)
 	}
 	return nil

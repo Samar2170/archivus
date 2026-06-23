@@ -128,12 +128,12 @@ func (dm *DiskManager) GetFiles(relPath, driveId, userId string) ([]storage_type
 	}
 	mdIdMap := make(map[string]string)
 	for _, md := range mds {
-		mdIdMap[md.Name] = fmt.Sprintf("%d", md.ID)
+		mdIdMap[md.Name] = md.ID.String()
 	}
 	var dirEntries []storage_types.DirEntry
-	for i, entry := range files {
+	for _, entry := range files {
 		d := storage_types.DirEntry{
-			ID:             uint(i),
+			ID:             mdIdMap[entry.Name()],
 			Name:           entry.Name(),
 			IsDir:          entry.IsDir(),
 			Extension:      filepath.Ext(entry.Name()),

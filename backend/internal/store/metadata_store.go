@@ -56,18 +56,18 @@ func (s *Store) GetFileMetadataByID(id string) (models.FileMetadata, error) {
 }
 
 func (s *Store) DeleteDirectoryMetadataByRelPath(relPath string) error {
-	result := s.conn().Where("rel_path = ?", relPath).Delete(&models.DirectoryMetadata{})
+	result := s.conn().Where("path_key = ?", relPath).Delete(&models.DirectoryMetadata{})
 	return result.Error
 }
 
 func (s *Store) DeleteFileMetadataByRelPath(relPath string) error {
-	result := s.conn().Where("rel_path = ?", relPath).Delete(&models.FileMetadata{})
+	result := s.conn().Where("path_key = ?", relPath).Delete(&models.FileMetadata{})
 	return result.Error
 }
 
-func (s *Store) ListFilesByRelPath(relPath string) ([]models.FileMetadata, error) {
+func (s *Store) ListFilesByRelPath(dirAbsPath string) ([]models.FileMetadata, error) {
 	var files []models.FileMetadata
-	result := s.conn().Where("rel_path LIKE ?", relPath+"/%").Find(&files)
+	result := s.conn().Where("path_key LIKE ?", dirAbsPath+"/%").Find(&files)
 	if result.Error != nil {
 		return nil, result.Error
 	}

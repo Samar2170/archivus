@@ -7,6 +7,13 @@ import (
 	"gorm.io/gorm"
 )
 
+type UserType string
+
+const (
+	UserTypePersonal UserType = "personal"
+	UserTypeBusiness UserType = "business"
+)
+
 type User struct {
 	*gorm.Model
 	ID       uuid.UUID `gorm:"type:uuid;primaryKey"`
@@ -15,13 +22,38 @@ type User struct {
 	PIN      string    `gorm:"not null"`
 	Email    string    `gorm:"not null"`
 
-	IsMaster    bool `gorm:"default:false"`
-	WriteAccess bool `gorm:"default:false"`
+	IsAdmin bool `gorm:"default:false"`
+	// WriteAccess bool     `gorm:"default:false"` // tracked at drive Level
+	Type UserType `gorm:"not null;default:personal"`
 }
 
 func (u *User) BeforeCreate(tx *gorm.DB) (err error) {
 	u.ID = uuid.New()
 	return
+}
+
+type AccessLevel string
+
+const (
+	AccessLevelRead    AccessLevel = "read"
+	AccessLevelWrite   AccessLevel = "write"
+	AccessLevelManager AccessLevel = "manager"
+	AccessLevelOwner   AccessLevel = "owner"
+)
+
+var accessLevelMap = map[AccessLevel]int{
+	AccessLevelRead:    1,
+	AccessLevelWrite:   2,
+	AccessLevelManager: 3,
+	AccessLevelOwner:   4,
+}
+
+func CompareAccessLevels(accessLevel AccessLevel, accessLevelRq AccessLevel) bool {
+	if accessLevelMap[accessLevel] >= accessLevelMap[accessLevelRq] {
+		return true
+	}
+	return false
+
 }
 
 type UserInvite struct {
@@ -31,7 +63,9 @@ type UserInvite struct {
 	InvitedBy  uuid.UUID `gorm:"type:uuid;not null"`
 	Drive      Drive     `gorm:"foreignKey:InvitedBy;constraint:OnDelete:CASCADE;"`
 	DriveID    uuid.UUID `gorm:"type:uuid;not null"`
-	ExpiresAt  time.Time `gorm:"not null"`
+
+	AccessLevel AccessLevel `gorm:"not null"`
+	ExpiresAt   time.Time   `gorm:"not null"`
 }
 
 func (ui *UserInvite) BeforeCreate(tx *gorm.DB) (err error) {

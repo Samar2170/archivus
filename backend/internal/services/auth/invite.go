@@ -2,33 +2,30 @@ package auth
 
 import (
 	"archivus/internal/models"
-	"archivus/internal/store"
 	"archivus/pkg/utils"
+	"context"
 	"fmt"
 	"time"
 )
 
-func (a *AuthService) InviteUser(user models.User) (string, error) {
-	if !user.IsMaster {
+func (a *AuthService) InviteUser(invitor models.User, driveId string, accessLevel models.AccessLevel) (string, error) {
+	if !invitor.IsAdmin {
 		return "", fmt.Errorf("only master users can invite other users")
 	}
-	drives, err := a.Store.GetDriveByOwnerID(user.ID.String())
+	drive, err := a.Store.GetDriveByID(driveId)
 	if err != nil {
-		return "", fmt.Errorf("failed to get drive for user: %w", err)
+		return "", fmt.Errorf("failed to get drive: %w", err)
 	}
-	if len(drives) == 0 {
-		return "", fmt.Errorf("no drive found for user")
-	}
-	drive := drives[0]
 	inviteCode, err := utils.GenerateRandomAlphaNumericString(16)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate invite code: %w", err)
 	}
 	invite := models.UserInvite{
-		InviteCode: inviteCode,
-		InvitedBy:  user.ID,
-		DriveID:    drive.ID,
-		ExpiresAt:  time.Now().Add(24 * 3 * time.Hour),
+		InviteCode:  inviteCode,
+		InvitedBy:   invitor.ID,
+		DriveID:     drive.ID,
+		ExpiresAt:   time.Now().Add(24 * 3 * time.Hour),
+		AccessLevel: accessLevel,
 	}
 	if _, err := a.Store.CreateUserInvite(invite); err != nil {
 		return "", fmt.Errorf("failed to create user invite: %w", err)
@@ -47,10 +44,13 @@ func (a *AuthService) ValidateInviteCode(inviteCode string) (models.UserInvite, 
 	return invite, nil
 }
 
-func (a *AuthService) AddUserToDrive(userID, driveID, username, driveSlug string) error {
+func (a *AuthService) AddUserToDrive(userID, driveID, username, driveSlug string, accessLevel models.AccessLevel) error {
 	var drive models.Drive
 	var user models.User
 	var err error
+	if accessLevel == "" {
+		accessLevel = models.AccessLevelRead
+	}
 	user, err = a.Store.ResolveUserByUsernameOrId(username, userID)
 	if err != nil {
 		return fmt.Errorf("invalid user: %w", err)
@@ -59,85 +59,40 @@ func (a *AuthService) AddUserToDrive(userID, driveID, username, driveSlug string
 	if err != nil {
 		return fmt.Errorf("invalid drive: %w", err)
 	}
-	return a.Store.AddUserToDrive(user.ID.String(), drive.ID.String())
+	return a.Store.AddUserToDrive(context.Background(), user.ID.String(), drive.ID.String(), accessLevel)
 }
 
-func (a *AuthService) RemoveUserFromDrive(userID, driveID, username, driveSlug string) error {
+func (a *AuthService) RemoveUserFromDrive(removeUserID, driveID, username, driveSlug, userId string) error {
 	var drive models.Drive
 	var err error
-	var user models.User
-	user, err = a.Store.ResolveUserByUsernameOrId(username, userID)
-	if err != nil {
-		return fmt.Errorf("invalid user: %w", err)
-	}
 	drive, err = a.Store.ResolveDriveBySlugOrID(driveSlug, driveID)
 	if err != nil {
 		return fmt.Errorf("invalid drive: %w", err)
 	}
-	return a.Store.RemoveUserFromDrive(user.ID.String(), drive.ID.String())
-}
-
-type UsersInDriveResponse struct {
-	Drive models.Drive  `json:"drive"`
-	Users []models.User `json:"users"`
-}
-
-func (a *AuthService) GetUsersInDrive(userId string) ([]UsersInDriveResponse, error) {
-	user, err := a.Store.GetUserByID(userId)
+	inDrive, accessLevel, err := a.Store.CheckIfUserInDrive(userId, driveID)
 	if err != nil {
-		return nil, fmt.Errorf("user not found: %w", err)
+		return fmt.Errorf("failed to check if user is in drive: %w", err)
 	}
-	if !user.IsMaster {
-		return nil, fmt.Errorf("only master users can view users in drive")
+	if !inDrive && drive.OwnerID.String() != userId {
+		return fmt.Errorf("user not in drive")
 	}
-	drives, err := a.Store.GetDriveByOwnerID(user.ID.String())
+	removeUserInDrive, removeUserAccessLevel, err := a.Store.CheckIfUserInDrive(removeUserID, driveID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get drive for user: %w", err)
+		return fmt.Errorf("failed to check if user is in drive: %w", err)
 	}
-	if len(drives) == 0 {
-		return nil, fmt.Errorf("no drive found for user")
+	if !removeUserInDrive {
+		return fmt.Errorf("user not in drive")
 	}
-	var driveUserResponses []UsersInDriveResponse
-	for _, drive := range drives {
-		users, err := a.Store.GetUsersByDriveID(drives[0].ID.String())
-		if err != nil {
-			return nil, fmt.Errorf("failed to get users in drive: %w", err)
-		}
-		driveUserResponses = append(driveUserResponses, UsersInDriveResponse{
-			Drive: drive,
-			Users: users,
-		})
+	if removeUserID == userId {
+		return fmt.Errorf("cannot remove self")
 	}
-
-	return driveUserResponses, nil
-}
-
-type UserInfoResponse struct {
-	User        models.User    `json:"user"`
-	Drives      []models.Drive `json:"drives"`
-	OwnedDrives []models.Drive `json:"owned_drives"`
-}
-
-func (h *AuthService) GetUserInfo(userID string) (UserInfoResponse, error) {
-	user, err := h.Store.GetUserByID(userID)
-	if err != nil {
-		return UserInfoResponse{}, fmt.Errorf("user not found: %w", err)
-	}
-	drives, err := h.Store.GetDriveByUserID(user.ID.String())
-	if err != nil {
-		if err != store.ErrRecordNotFound {
-			return UserInfoResponse{}, fmt.Errorf("failed to get drives for user: %w", err)
+	if removeUserAccessLevel == models.AccessLevelManager {
+		if accessLevel != models.AccessLevelOwner && drive.OwnerID.String() != userId {
+			return fmt.Errorf("only owner can remove manager")
 		}
 	}
-	ownedDrives, err := h.Store.GetDriveByOwnerID(user.ID.String())
-	if err != nil {
-		if err != store.ErrRecordNotFound {
-			return UserInfoResponse{}, fmt.Errorf("failed to get owned drives for user: %w", err)
-		}
+	if accessLevel != models.AccessLevelManager && accessLevel != models.AccessLevelOwner {
+		return fmt.Errorf("only drive managers can remove users")
 	}
-	return UserInfoResponse{
-		User:        user,
-		Drives:      drives,
-		OwnedDrives: ownedDrives,
-	}, nil
+	return a.Store.RemoveUserFromDrive(userId, driveID)
 }

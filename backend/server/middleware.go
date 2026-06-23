@@ -1,6 +1,7 @@
 package server
 
 import (
+	"archivus/internal/config"
 	archivus_constants "archivus/internal/constants"
 	"archivus/internal/services/auth"
 	"archivus/pkg/response"
@@ -9,11 +10,16 @@ import (
 	"strings"
 )
 
-// var exemptedPaths = map[string]bool{
-// 	"/health":        true,
-// 	"/auth/login":    true,
-// 	"/auth/register": true,
-// }
+func HomeMiddleware(as *auth.AuthService) func(next http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !config.Config.S3Enabled {
+				next.ServeHTTP(w, r)
+				return
+			}
+		})
+	}
+}
 
 func AuthMiddleware(as *auth.AuthService) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {

@@ -17,6 +17,12 @@ func (s *Store) GetUserByUsername(username string) (models.User, error) {
 	return user, result.Error
 }
 
+func (s *Store) CheckMasterUserExists() (bool, error) {
+	var user models.User
+	result := s.conn().First(&user, "is_master = ?", true)
+	return result.RowsAffected > 0, result.Error
+}
+
 func (s *Store) GetUserByUsernameOrId(usernameOrId string) (models.User, error) {
 	var user models.User
 	result := s.conn().First(&user, "username = ? OR id = ?", usernameOrId, usernameOrId)

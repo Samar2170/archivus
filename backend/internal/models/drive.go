@@ -20,7 +20,6 @@ type Drive struct {
 	OwnerType UserType `gorm:"not null"`
 
 	Prefix string `gorm:"index"` // archivus directory path for local disk , //  prefix in case of S3
-	Path   string `gorm:"index"`
 
 	DefaultWriteAccess bool `gorm:"not null;default:false"`
 }

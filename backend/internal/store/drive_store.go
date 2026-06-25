@@ -19,7 +19,6 @@ func (s *Store) CreateDrive(name, ownerID, slug, prefix string, ownerType models
 		OwnerType: ownerType,
 		Slug:      slug,
 		Prefix:    prefix,
-		Path:      prefix + "/" + slug,
 	}
 	result := s.conn().Create(&drive)
 	return drive, result.Error

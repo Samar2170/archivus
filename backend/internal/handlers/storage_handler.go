@@ -34,7 +34,7 @@ func (h *StorageHandler) CreateFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.service.CreateDir(req.Path, req.DriveId, userID); err != nil {
+	if err := h.service.CreateDirV2(req.Path, req.DriveId, userID); err != nil {
 		response.BadRequestResponse(w, err.Error())
 		return
 	}
@@ -91,7 +91,7 @@ func (h *StorageHandler) UploadFileHandler(w http.ResponseWriter, r *http.Reques
 		}
 		defer file.Close()
 
-		if err := h.service.UploadFile(folderPath, driveID, userID, file, fileHeader); err != nil {
+		if err := h.service.UploadFileV2(folderPath, driveID, userID, file, fileHeader); err != nil {
 			response.BadRequestResponse(w, err.Error())
 			return
 		}
@@ -159,7 +159,7 @@ func (h *StorageHandler) GetFilesHandler(w http.ResponseWriter, r *http.Request)
 		response.UnauthorizedResponse(w, "user ID not found in context")
 		return
 	}
-	files, err := h.service.GetFiles(req.Path, req.DriveId, userID)
+	files, err := h.service.GetFilesV2(req.Path, req.DriveId, userID)
 	if err != nil {
 		response.BadRequestResponse(w, err.Error())
 		return

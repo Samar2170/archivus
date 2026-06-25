@@ -111,6 +111,93 @@ func (s *S3Manager) DownloadFile(fileId string, driveId, userId string) (*os.Fil
 	return tmp, &md, nil
 }
 
+func (s *S3Manager) UploadFileV2(relPath, driveId, userId string, file multipart.File, fileHeader *multipart.FileHeader) error {
+	hasAccess, err := s.CheckUserDriveWriteAccess(userId, driveId)
+	if err != nil {
+		return err
+	}
+	if !hasAccess {
+		return errors.New("user does not have write access to this drive")
+	}
+	drive, err := s.Store.GetDriveByID(driveId)
+	if err != nil {
+		return fmt.Errorf("s3manager: get drive %q: %w", driveId, err)
+	}
+	trimmed := strings.Trim(relPath, "/")
+	var pathKey string
+	if trimmed == "" {
+		pathKey = drive.Slug + "/" + fileHeader.Filename
+	} else {
+		pathKey = drive.Slug + "/" + trimmed + "/" + fileHeader.Filename
+	}
+	prefix := filepath.Dir(pathKey) + "/"
+	contentType := fileHeader.Header.Get("Content-Type")
+	if err := s.Client.PutObject(context.Background(), s.Client.BucketName, pathKey, contentType, fileHeader.Size, file); err != nil {
+		return fmt.Errorf("s3manager: upload %q: %w", pathKey, err)
+	}
+	sizeInMb := float64(fileHeader.Size) / (1 << 20)
+	_, err = s.Store.CreateFileMetadataV2(fileHeader.Filename, pathKey, prefix, contentType, driveId, userId, sizeInMb)
+	if err != nil {
+		_ = s.Client.DeleteObject(context.Background(), s.Client.BucketName, pathKey)
+		return fmt.Errorf("s3manager: save file metadata for %q: %w", pathKey, err)
+	}
+	return nil
+}
+
+func (s *S3Manager) GetFilesV2(relPath, driveId, userId string) ([]storage_types.DirEntry, error) {
+	hasAccess, err := s.CheckUserHasDriveAccess(userId, driveId)
+	if err != nil {
+		return nil, err
+	}
+	if !hasAccess {
+		return nil, errors.New("user does not have access to this drive")
+	}
+	drive, err := s.Store.GetDriveByID(driveId)
+	if err != nil {
+		return nil, fmt.Errorf("s3manager: get drive %q: %w", driveId, err)
+	}
+	trimmed := strings.Trim(relPath, "/")
+	var dirPrefix string
+	if trimmed == "" {
+		dirPrefix = drive.Slug + "/"
+	} else {
+		dirPrefix = drive.Slug + "/" + trimmed + "/"
+	}
+	ctx := context.Background()
+	files, err := s.Store.GetFileMetadataByDirPrefix(drive.ID.String(), dirPrefix)
+	if err != nil {
+		return nil, fmt.Errorf("s3manager: list files for prefix %q: %w", dirPrefix, err)
+	}
+	dirs, err := s.Store.GetDirectoriesByParentPrefix(drive.ID.String(), dirPrefix)
+	if err != nil {
+		return nil, fmt.Errorf("s3manager: list dirs for prefix %q: %w", dirPrefix, err)
+	}
+	var entries []storage_types.DirEntry
+	for _, f := range files {
+		signedURL, _ := s.Client.PresignGetObject(ctx, s.Client.BucketName, f.PathKey, 15*time.Minute)
+		entries = append(entries, storage_types.DirEntry{
+			ID:             f.ID.String(),
+			Name:           f.Name,
+			IsDir:          false,
+			Extension:      filepath.Ext(f.Name),
+			SignedUrl:      signedURL,
+			Size:           f.SizeInMb,
+			Path:           f.PathKey,
+			NavigationPath: filepath.Join(relPath, f.Name),
+		})
+	}
+	for _, d := range dirs {
+		entries = append(entries, storage_types.DirEntry{
+			ID:             d.ID.String(),
+			Name:           d.Name,
+			IsDir:          true,
+			Path:           d.PathKey,
+			NavigationPath: filepath.Join(relPath, d.Name),
+		})
+	}
+	return entries, nil
+}
+
 func (s *S3Manager) GetFiles(relPath, driveId, userId string) ([]storage_types.DirEntry, error) {
 	hasAccess, err := s.CheckUserHasDriveAccess(userId, driveId)
 	if err != nil {

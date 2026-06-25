@@ -26,19 +26,18 @@ func (s *S3Manager) UploadFile(relPath, driveId, userId string, file multipart.F
 	if err != nil {
 		return fmt.Errorf("s3manager: get drive %q: %w", driveId, err)
 	}
-	dirKey := strings.Trim(s3Key(relPath, drive.Slug), "/")
-	key := filepath.Join(dirKey, fileHeader.Filename)
+	// key is namespaced by drive slug within the shared bucket
+	key := drive.Slug + "/" + filepath.Join(strings.Trim(relPath, "/"), fileHeader.Filename)
 	contentType := fileHeader.Header.Get("Content-Type")
-	if err := s.Client.PutObject(context.Background(), drive.Slug, key, contentType, fileHeader.Size, file); err != nil {
+	if err := s.Client.PutObject(context.Background(), s.Client.BucketName, key, contentType, fileHeader.Size, file); err != nil {
 		return fmt.Errorf("s3manager: upload %q: %w", key, err)
 	}
-	dbRelPath := filepath.Join(drive.Slug, key)
-	dbAbsPath := fmt.Sprintf("s3://%s/%s", drive.Slug, key)
-	dbDirPath := fmt.Sprintf("s3://%s/%s", drive.Slug, filepath.Dir(key))
+	dbAbsPath := fmt.Sprintf("s3://%s/%s", s.Client.BucketName, key)
+	dbDirPath := fmt.Sprintf("s3://%s/%s", s.Client.BucketName, filepath.Dir(key))
 	sizeInMb := float64(fileHeader.Size) / (1 << 20)
-	_, err = s.Store.CreateFileMetadata(fileHeader.Filename, dbAbsPath, dbRelPath, dbDirPath, driveId, userId, sizeInMb)
+	_, err = s.Store.CreateFileMetadata(fileHeader.Filename, dbAbsPath, key, dbDirPath, driveId, userId, sizeInMb)
 	if err != nil {
-		_ = s.Client.DeleteObject(context.Background(), drive.Slug, key)
+		_ = s.Client.DeleteObject(context.Background(), s.Client.BucketName, key)
 		return fmt.Errorf("s3manager: save file metadata for %q: %w", key, err)
 	}
 	return nil
@@ -88,14 +87,10 @@ func (s *S3Manager) DownloadFile(fileId string, driveId, userId string) (*os.Fil
 	if err != nil {
 		return nil, nil, fmt.Errorf("s3manager: get file metadata %q: %w", fileId, err)
 	}
-	drive, err := s.Store.GetDriveByID(driveId)
+	// PathKey = drive.Slug/dir/filename, i.e. the full key in the shared bucket
+	out, err := s.Client.GetObject(context.Background(), s.Client.BucketName, md.PathKey)
 	if err != nil {
-		return nil, nil, fmt.Errorf("s3manager: get drive %q: %w", driveId, err)
-	}
-	key := s3Key(md.PathKey, drive.Slug)
-	out, err := s.Client.GetObject(context.Background(), drive.Slug, key)
-	if err != nil {
-		return nil, nil, fmt.Errorf("s3manager: get object %q: %w", key, err)
+		return nil, nil, fmt.Errorf("s3manager: get object %q: %w", md.PathKey, err)
 	}
 	defer out.Body.Close()
 
@@ -128,12 +123,15 @@ func (s *S3Manager) GetFiles(relPath, driveId, userId string) ([]storage_types.D
 	if err != nil {
 		return nil, fmt.Errorf("s3manager: get drive %q: %w", driveId, err)
 	}
-	prefix := strings.Trim(s3Key(relPath, drive.Slug), "/")
-	if prefix != "" {
-		prefix += "/"
+	trimmed := strings.Trim(relPath, "/")
+	var prefix string
+	if trimmed == "" {
+		prefix = drive.Slug + "/"
+	} else {
+		prefix = drive.Slug + "/" + trimmed + "/"
 	}
 	ctx := context.Background()
-	entries, err := s.Client.ListObjectsOnelevel(ctx, drive.Slug, prefix)
+	entries, err := s.Client.ListObjectsOnelevel(ctx, s.Client.BucketName, prefix)
 	if err != nil {
 		return nil, fmt.Errorf("s3manager: list %q: %w", prefix, err)
 	}
@@ -142,7 +140,7 @@ func (s *S3Manager) GetFiles(relPath, driveId, userId string) ([]storage_types.D
 		name := filepath.Base(strings.TrimSuffix(e.Key, "/"))
 		signedURL := ""
 		if !e.IsDir {
-			signedURL, _ = s.Client.PresignGetObject(ctx, drive.Slug, e.Key, 15*time.Minute)
+			signedURL, _ = s.Client.PresignGetObject(ctx, s.Client.BucketName, e.Key, 15*time.Minute)
 		}
 		dirEntries = append(dirEntries, storage_types.DirEntry{
 			ID:             "",
@@ -150,7 +148,7 @@ func (s *S3Manager) GetFiles(relPath, driveId, userId string) ([]storage_types.D
 			IsDir:          e.IsDir,
 			Extension:      filepath.Ext(name),
 			SignedUrl:      signedURL,
-			Path:           filepath.Join(drive.Slug, e.Key),
+			Path:           e.Key, // full S3 key = DB PathKey
 			NavigationPath: filepath.Join(relPath, name),
 		})
 	}

@@ -49,18 +49,18 @@ func (s *S3Manager) CreateDir(subFolder, driveId, userId string) error {
 	if err != nil {
 		return fmt.Errorf("s3manager: get drive %q: %w", driveId, err)
 	}
-	// trailing slash is the S3 convention for virtual directories
-	key := strings.Trim(subFolder, "/") + "/"
-	if err := s.Client.CreateDirectory(context.Background(), drive.Slug, key); err != nil {
-		return fmt.Errorf("s3manager: create directory %q in bucket %q: %w", key, drive.Slug, err)
+	// trailing slash is the S3 convention for virtual directories; key is namespaced by drive slug
+	key := drive.Slug + "/" + strings.Trim(subFolder, "/") + "/"
+	if err := s.Client.CreateDirectory(context.Background(), s.Client.BucketName, key); err != nil {
+		return fmt.Errorf("s3manager: create directory %q in bucket %q: %w", key, s.Client.BucketName, err)
 	}
 	relPath := filepath.Join(drive.Slug, subFolder)
-	absPath := fmt.Sprintf("s3://%s/%s", drive.Slug, key)
+	absPath := fmt.Sprintf("s3://%s/%s", s.Client.BucketName, key)
 	parts := strings.Split(strings.Trim(subFolder, "/"), "/")
 	name := parts[len(parts)-1]
 	_, err = s.Store.CreateDirectoryMetadata(name, absPath, relPath, drive.ID.String())
 	if err != nil {
-		_ = s.Client.DeleteObject(context.Background(), drive.Slug, key)
+		_ = s.Client.DeleteObject(context.Background(), s.Client.BucketName, key)
 		return fmt.Errorf("s3manager: save directory metadata for %q: %w", key, err)
 	}
 	return nil
@@ -78,14 +78,14 @@ func (s *S3Manager) DeleteDir(relPath, driveId, userId string) error {
 	if err != nil {
 		return fmt.Errorf("s3manager: get drive %q: %w", driveId, err)
 	}
-	prefix := s3Key(relPath, drive.Slug)
+	prefix := drive.Slug + "/" + strings.Trim(relPath, "/")
 	ctx := context.Background()
-	keys, err := s.Client.ListObjects(ctx, drive.Slug, prefix)
+	keys, err := s.Client.ListObjects(ctx, s.Client.BucketName, prefix)
 	if err != nil {
 		return fmt.Errorf("s3manager: list prefix %q: %w", prefix, err)
 	}
 	if len(keys) > 0 {
-		if err := s.Client.DeleteObjects(ctx, drive.Slug, keys); err != nil {
+		if err := s.Client.DeleteObjects(ctx, s.Client.BucketName, keys); err != nil {
 			return fmt.Errorf("s3manager: delete prefix %q: %w", prefix, err)
 		}
 	}

@@ -3,3 +3,7 @@
 
 config.yaml
 s3_config.yaml
+
+.vscode
+
+tmp/

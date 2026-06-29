@@ -7,3 +7,9 @@ s3_config.yaml
 .vscode
 
 tmp/
+
+.svelte-kit/
+
+node_modules/
+
+.env

@@ -22,13 +22,25 @@ func (b *BaseManager) EnsureDirectoryMetadata(userID string, drive models.Drive,
 		var parentID *uuid.UUID = nil
 		prefix := drive.Slug
 		for _, seg := range segments {
+			seg = strings.Trim(seg, "/")
+			if seg == "" {
+				continue
+			}
 			var existing models.DirectoryMetadata
-			err := tx.DB.Where("drive_id = ? AND parent_id = ? AND name = ?", drive.ID, parentID, seg).
-				First(&existing).Error
+			// parentID == nil must be matched with "IS NULL"; "parent_id = NULL"
+			// is never true in SQL and would always create a duplicate root dir.
+			query := tx.DB.Where("drive_id = ? AND name = ?", drive.ID, seg)
+			if parentID == nil {
+				query = query.Where("parent_id IS NULL")
+			} else {
+				query = query.Where("parent_id = ?", parentID)
+			}
+			err := query.First(&existing).Error
 			switch {
 			case err == nil:
 				result = append(result, existing)
 				parentID = &existing.ID
+				prefix = existing.PathKey
 			case errors.Is(err, gorm.ErrRecordNotFound):
 				newDir := models.DirectoryMetadata{
 					Name:        seg,
@@ -41,10 +53,9 @@ func (b *BaseManager) EnsureDirectoryMetadata(userID string, drive models.Drive,
 				if err := tx.DB.Create(&newDir).Error; err != nil {
 					return fmt.Errorf("failed to create directory %q: %w", seg, err)
 				}
-				seg = strings.Trim(seg, "/")
-				prefix = prefix + "/" + seg
 				result = append(result, newDir)
 				parentID = &newDir.ID
+				prefix = newDir.PathKey
 			default:
 				return fmt.Errorf("failed to query directory %q: %w", seg, err)
 			}

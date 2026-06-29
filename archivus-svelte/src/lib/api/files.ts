@@ -1,7 +1,8 @@
 import { apiFetch, apiUpload } from '$lib/utils/fetcher';
+import { paths, baseUrl } from '$lib/data/constants';
+import { authStore } from '$lib/stores/auth';
 
 export interface FileMetaData {
-	id: string;
 	ID: string;
 	Name: string;
 	IsDir: boolean;
@@ -13,49 +14,44 @@ export interface FileMetaData {
 	Thumbnail: string;
 }
 
-export interface ListFileMetaData {
-	ID: string;
-	Name: string;
-	IsImage: boolean;
-	FilePath: string;
-	CreatedAt: string;
-	SizeInMb: number;
-	UpdatedAt: string;
-}
-
 interface FilesResponse {
 	files: FileMetaData[];
-	size: number;
 }
 
-interface ListFilesResponse {
-	files: ListFileMetaData[];
-}
-
-export async function getFiles(folder: string): Promise<FilesResponse> {
-	return apiFetch<FilesResponse>(`files/get/?folder=${encodeURIComponent(folder)}`);
-}
-
-export async function listFiles(search: string): Promise<ListFilesResponse> {
-	return apiFetch<ListFilesResponse>(`files/list/?search=${encodeURIComponent(search)}`);
-}
-
-export async function moveFile(filePath: string, dst: string): Promise<void> {
-	await apiFetch('files/move/', {
+export async function getFiles(path: string, driveId: string): Promise<FilesResponse> {
+	return apiFetch<FilesResponse>(paths.files, {
 		method: 'POST',
-		body: JSON.stringify({ filePath, dst })
+		body: JSON.stringify({ path, driveId })
 	});
 }
 
 export async function uploadFiles(
 	files: FileList,
-	folder: string,
+	folderPath: string,
+	driveId: string,
 	onProgress: (percent: number) => void
 ): Promise<void> {
 	const formData = new FormData();
 	for (const file of files) {
-		formData.append('file', file);
+		formData.append('files', file);
 	}
-	formData.append('folder', folder);
-	await apiUpload('files/upload/', formData, onProgress);
+	formData.append('folderPath', folderPath);
+	formData.append('driveId', driveId);
+	await apiUpload(paths.fileUpload, formData, onProgress);
+}
+
+export function downloadFileUrl(fileId: string, driveId: string): string {
+	const params = new URLSearchParams({ fileId, driveId });
+	return `${baseUrl}${paths.fileDownload}?${params.toString()}`;
+}
+
+export async function downloadFile(fileId: string, driveId: string): Promise<Blob> {
+	const token = authStore.getToken();
+	const res = await fetch(downloadFileUrl(fileId, driveId), {
+		headers: token ? { Authorization: `Bearer ${token}` } : {}
+	});
+	if (!res.ok) {
+		throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+	}
+	return res.blob();
 }

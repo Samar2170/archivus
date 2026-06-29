@@ -4,13 +4,14 @@ import { browser } from '$app/environment';
 interface AuthState {
 	user: string | null;
 	token: string | null;
+	driveId: string | null;
 	isAuthenticated: boolean;
 }
 
 const STORAGE_KEY = 'auth';
 
 function getInitialState(): AuthState {
-	if (!browser) return { user: null, token: null, isAuthenticated: false };
+	if (!browser) return { user: null, token: null, driveId: null, isAuthenticated: false };
 	try {
 		const stored = localStorage.getItem(STORAGE_KEY);
 		if (stored) {
@@ -18,13 +19,14 @@ function getInitialState(): AuthState {
 			return {
 				user: parsed.user ?? null,
 				token: parsed.token ?? null,
+				driveId: parsed.driveId ?? null,
 				isAuthenticated: !!(parsed.user && parsed.token)
 			};
 		}
 	} catch {
 		// ignore
 	}
-	return { user: null, token: null, isAuthenticated: false };
+	return { user: null, token: null, driveId: null, isAuthenticated: false };
 }
 
 function createAuthStore() {
@@ -36,23 +38,44 @@ function createAuthStore() {
 		}
 	}
 
+	function read<T>(selector: (s: AuthState) => T): T {
+		let value!: T;
+		const unsubscribe = subscribe((s) => (value = selector(s)));
+		unsubscribe();
+		return value;
+	}
+
 	return {
 		subscribe,
 		setAuth(user: string, token: string) {
-			const state: AuthState = { user, token, isAuthenticated: true };
-			set(state);
-			persist(state);
+			update((s) => {
+				const state: AuthState = { ...s, user, token, isAuthenticated: true };
+				persist(state);
+				return state;
+			});
+		},
+		setDriveId(driveId: string | null) {
+			update((s) => {
+				const state: AuthState = { ...s, driveId };
+				persist(state);
+				return state;
+			});
 		},
 		signout() {
-			const state: AuthState = { user: null, token: null, isAuthenticated: false };
+			const state: AuthState = {
+				user: null,
+				token: null,
+				driveId: null,
+				isAuthenticated: false
+			};
 			set(state);
 			if (browser) localStorage.removeItem(STORAGE_KEY);
 		},
 		getToken(): string | null {
-			let token: string | null = null;
-			const unsubscribe = subscribe((s) => (token = s.token));
-			unsubscribe();
-			return token;
+			return read((s) => s.token);
+		},
+		getDriveId(): string | null {
+			return read((s) => s.driveId);
 		}
 	};
 }

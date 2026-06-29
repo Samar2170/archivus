@@ -3,6 +3,7 @@
 	import { Plus, Upload, FolderPlus, X } from "lucide-svelte";
 	import { uploadFiles } from "$lib/api/files";
 	import { createFolder } from "$lib/api/folder";
+	import { authStore } from "$lib/stores/auth";
 
 	export let currentFolder: string = "";
 
@@ -21,12 +22,18 @@
 
 	async function handleUpload() {
 		if (!selectedFiles?.length) return;
+		const driveId = $authStore.driveId;
+		if (!driveId) {
+			alert("No drive available for this account.");
+			return;
+		}
 		uploading = true;
 		uploadProgress = 0;
 		try {
 			await uploadFiles(
 				selectedFiles,
 				currentFolder,
+				driveId,
 				(p) => (uploadProgress = p),
 			);
 			uploadOpen = false;
@@ -42,12 +49,17 @@
 
 	async function handleCreateFolder() {
 		if (!newFolderName.trim()) return;
+		const driveId = $authStore.driveId;
+		if (!driveId) {
+			alert("No drive available for this account.");
+			return;
+		}
 		creatingFolder = true;
 		try {
 			const fullPath = currentFolder
 				? `${currentFolder}/${newFolderName.trim()}`
 				: newFolderName.trim();
-			await createFolder(fullPath);
+			await createFolder(fullPath, driveId);
 			folderOpen = false;
 			newFolderName = "";
 			dispatch("refresh");

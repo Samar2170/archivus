@@ -23,10 +23,19 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
 	});
 
 	if (!response.ok) {
-		throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+		let message = `HTTP ${response.status}: ${response.statusText}`;
+		try {
+			const body = await response.json();
+			if (body?.error) message = body.error;
+		} catch {
+			// non-JSON error body, keep default message
+		}
+		throw new Error(message);
 	}
 
-	return response.json() as Promise<T>;
+	// Some endpoints (e.g. folder create) return 200 with an empty body.
+	const text = await response.text();
+	return (text ? JSON.parse(text) : undefined) as T;
 }
 
 export function apiUpload(

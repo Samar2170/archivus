@@ -2,31 +2,11 @@
 	import { goto } from "$app/navigation";
 	import { page } from "$app/stores";
 	import { authStore } from "$lib/stores/auth";
-	import {
-		Menu,
-		X,
-		Search,
-		Home,
-		List,
-		CheckSquare,
-		LogOut,
-	} from "lucide-svelte";
+	import { Menu, X, Home, LogOut } from "lucide-svelte";
 
 	let mobileOpen = false;
-	let searchQuery = "";
 
-	const navItems = [
-		{ label: "Home", href: "/", icon: Home },
-		{ label: "List Files", href: "/list", icon: List },
-		{ label: "ToDo", href: "/todo", icon: CheckSquare },
-	];
-
-	function handleSearch(e: Event) {
-		e.preventDefault();
-		if (searchQuery.trim()) {
-			goto(`/list?search=${encodeURIComponent(searchQuery.trim())}`);
-		}
-	}
+	const navItems = [{ label: "Home", href: "/", icon: Home }];
 
 	function signout() {
 		authStore.signout();
@@ -63,23 +43,8 @@
 				</div>
 			</div>
 
-			<!-- Search + user -->
+			<!-- user -->
 			<div class="flex items-center gap-3">
-				<form on:submit={handleSearch} class="hidden sm:flex">
-					<div class="relative">
-						<Search
-							class="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-orange-300"
-						/>
-						<input
-							type="search"
-							bind:value={searchQuery}
-							placeholder="Search files..."
-							class="pl-9 pr-3 py-1.5 text-sm rounded-md bg-orange-500 text-white placeholder-orange-300
-								focus:outline-none focus:ring-2 focus:ring-white/40 w-52"
-						/>
-					</div>
-				</form>
-
 				<button
 					on:click={signout}
 					class="hidden sm:flex items-center gap-1.5 text-orange-100 hover:text-white text-sm font-medium"
@@ -119,21 +84,6 @@
 					{item.label}
 				</a>
 			{/each}
-
-			<form on:submit={handleSearch} class="pt-2">
-				<div class="relative">
-					<Search
-						class="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-orange-300"
-					/>
-					<input
-						type="search"
-						bind:value={searchQuery}
-						placeholder="Search files..."
-						class="w-full pl-9 pr-3 py-1.5 text-sm rounded-md bg-orange-500 text-white
-							placeholder-orange-300 focus:outline-none focus:ring-2 focus:ring-white/40"
-					/>
-				</div>
-			</form>
 
 			<button
 				on:click={signout}

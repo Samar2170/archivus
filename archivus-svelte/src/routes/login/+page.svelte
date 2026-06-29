@@ -27,6 +27,7 @@
 			await signin(username, password, pin);
 			goto("/");
 		} catch (err) {
+			console.log(err);
 			error = "Invalid credentials. Please try again.";
 		} finally {
 			loading = false;

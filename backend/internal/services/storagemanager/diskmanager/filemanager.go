@@ -152,14 +152,17 @@ func (dm *DiskManager) GetFilesV2(relPath, driveId, userId string) ([]storage_ty
 	if err != nil {
 		return nil, fmt.Errorf("diskmanager: get drive by id %q: %w", driveId, err)
 	}
-	dirPrefix := filepath.Join(dm.Home, drive.Slug, relPath)
-	files, err := dm.Store.GetFileMetadataByDirPrefix(drive.ID.String(), dirPrefix)
-	if err != nil {
-		return nil, fmt.Errorf("diskmanager: list files for prefix %q: %w", dirPrefix, err)
+	dirPrefixes := [2]string{
+		filepath.Join(dm.Home, drive.Slug, relPath),
+		filepath.Join(dm.Home, drive.Slug, relPath) + "/",
 	}
-	dirs, err := dm.Store.GetDirectoriesByParentPrefix(drive.ID.String(), dirPrefix)
+	files, err := dm.Store.GetFileMetadataByDirPrefix(drive.ID.String(), dirPrefixes)
 	if err != nil {
-		return nil, fmt.Errorf("diskmanager: list dirs for prefix %q: %w", dirPrefix, err)
+		return nil, fmt.Errorf("diskmanager: list files for prefix %q: %w", dirPrefixes, err)
+	}
+	dirs, err := dm.Store.GetDirectoriesByParentPrefix(drive.ID.String(), dirPrefixes)
+	if err != nil {
+		return nil, fmt.Errorf("diskmanager: list dirs for prefix %q: %w", dirPrefixes, err)
 	}
 	var entries []storage_types.DirEntry
 	for _, f := range files {

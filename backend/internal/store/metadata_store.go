@@ -131,14 +131,14 @@ func (s *Store) CreateDirectoryMetadataV2(name, pathKey, prefix, driveID string)
 	return dm, result.Error
 }
 
-func (s *Store) GetFileMetadataByDirPrefix(driveID, prefix string) ([]models.FileMetadata, error) {
+func (s *Store) GetFileMetadataByDirPrefix(driveID string, prefixes [2]string) ([]models.FileMetadata, error) {
 	var files []models.FileMetadata
-	result := s.conn().Where("drive_id = ? AND prefix = ?", driveID, prefix).Find(&files)
+	result := s.conn().Where("drive_id = ? AND prefix IN ?", driveID, prefixes).Find(&files)
 	return files, result.Error
 }
 
-func (s *Store) GetDirectoriesByParentPrefix(driveID, prefix string) ([]models.DirectoryMetadata, error) {
+func (s *Store) GetDirectoriesByParentPrefix(driveID string, prefixes [2]string) ([]models.DirectoryMetadata, error) {
 	var dirs []models.DirectoryMetadata
-	result := s.conn().Where("drive_id = ? AND prefix = ?", driveID, prefix).Find(&dirs)
+	result := s.conn().Where("drive_id = ? AND prefix IN ?", driveID, prefixes).Find(&dirs)
 	return dirs, result.Error
 }

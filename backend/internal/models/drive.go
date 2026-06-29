@@ -40,6 +40,12 @@ type DirectoryMetadata struct {
 	DriveID uuid.UUID `gorm:"type:uuid;not null"`
 
 	SizeInMb float64 `gorm:"not null"`
+
+	ParentID *uuid.UUID         `gorm:"type:uuid;index"` // self-referencing foreign key for parent directory
+	Parent   *DirectoryMetadata `gorm:"foreignKey:ParentID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
+
+	CreatedBy   User      `gorm:"foreignKey:CreatedByID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
+	CreatedByID uuid.UUID `gorm:"type:uuid"`
 }
 
 func (d *DirectoryMetadata) BeforeCreate(tx *gorm.DB) (err error) {

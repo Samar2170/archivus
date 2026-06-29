@@ -111,18 +111,17 @@ func (s *S3Manager) CreateDirV2(subFolder, driveId, userId string) error {
 	// pathKey is the S3 key for this directory (trailing slash = S3 virtual dir convention).
 	pathKey := drive.Slug + "/" + trimmed + "/"
 	// prefix is the parent directory's key.
-	parent := filepath.Dir(trimmed)
-	var prefix string
-	if parent == "." {
-		prefix = drive.Slug + "/"
-	} else {
-		prefix = drive.Slug + "/" + parent + "/"
-	}
+	// parent := filepath.Dir(trimmed)
+	// var prefix string
+	// if parent == "." {
+	// 	prefix = drive.Slug + "/"
+	// } else {
+	// 	prefix = drive.Slug + "/" + parent + "/"
+	// }
 	if err := s.Client.CreateDirectory(context.Background(), s.Client.BucketName, pathKey); err != nil {
 		return fmt.Errorf("s3manager: create directory %q in bucket %q: %w", pathKey, s.Client.BucketName, err)
 	}
-	name := filepath.Base(trimmed)
-	_, err = s.Store.CreateDirectoryMetadataV2(name, pathKey, prefix, drive.ID.String())
+	_, err = s.EnsureDirectoryMetadata(userId, drive, strings.Split(trimmed, "/"))
 	if err != nil {
 		_ = s.Client.DeleteObject(context.Background(), s.Client.BucketName, pathKey)
 		return fmt.Errorf("s3manager: save directory metadata for %q: %w", pathKey, err)

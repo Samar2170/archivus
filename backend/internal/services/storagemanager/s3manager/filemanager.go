@@ -157,20 +157,20 @@ func (s *S3Manager) GetFilesV2(relPath, driveId, userId string) ([]storage_types
 		return nil, fmt.Errorf("s3manager: get drive %q: %w", driveId, err)
 	}
 	trimmed := strings.Trim(relPath, "/")
-	var dirPrefix string
+	var dirPrefixes [2]string
 	if trimmed == "" {
-		dirPrefix = drive.Slug + "/"
+		dirPrefixes = [2]string{drive.Slug + "/", drive.Slug} // Include the root directory prefix
 	} else {
-		dirPrefix = drive.Slug + "/" + trimmed + "/"
+		dirPrefixes = [2]string{drive.Slug + "/" + trimmed + "/", drive.Slug + "/" + trimmed}
 	}
 	ctx := context.Background()
-	files, err := s.Store.GetFileMetadataByDirPrefix(drive.ID.String(), dirPrefix)
+	files, err := s.Store.GetFileMetadataByDirPrefix(drive.ID.String(), dirPrefixes)
 	if err != nil {
-		return nil, fmt.Errorf("s3manager: list files for prefix %q: %w", dirPrefix, err)
+		return nil, fmt.Errorf("s3manager: list files for prefix %q: %w", dirPrefixes, err)
 	}
-	dirs, err := s.Store.GetDirectoriesByParentPrefix(drive.ID.String(), dirPrefix)
+	dirs, err := s.Store.GetDirectoriesByParentPrefix(drive.ID.String(), dirPrefixes)
 	if err != nil {
-		return nil, fmt.Errorf("s3manager: list dirs for prefix %q: %w", dirPrefix, err)
+		return nil, fmt.Errorf("s3manager: list dirs for prefix %q: %w", dirPrefixes, err)
 	}
 	var entries []storage_types.DirEntry
 	for _, f := range files {

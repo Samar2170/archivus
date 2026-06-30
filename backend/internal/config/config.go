@@ -31,6 +31,14 @@ var (
 	UsersDir       string
 )
 
+func (c *Configuration) String() string {
+	return fmt.Sprintf(
+		"ArchivusHome:       %s\nLogsDir:            %s\nBackendProxyUrl:    %s\nDefaultWriteAccess: %v\nAllowUserDrive:     %v\nS3Enabled:          %v\nSecretKey:          [redacted]\nServerSalt:         [redacted]",
+		c.ArchivusHome, c.LogsDir, c.BackendProxyUrl,
+		c.DefaultWriteAccess, c.AllowUserDrive, c.S3Enabled,
+	)
+}
+
 // Init sets ProjectBaseDir, writes a default config if none exists, then loads
 // it into Config. Must be called before any other package that reads Config.
 func Init(serverMode, s3ConfigPath string) error {

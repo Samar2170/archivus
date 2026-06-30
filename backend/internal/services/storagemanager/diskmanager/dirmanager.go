@@ -90,6 +90,37 @@ func (dm *DiskManager) CreateDir(subFolder, driveId, userId string) error {
 	return nil
 }
 
+func (dm *DiskManager) CreateDirV2(subFolder, driveId, userId string) error {
+	if subFolder == "" {
+		return errors.New("subFolder cannot be empty")
+	}
+	hasAccess, err := dm.CheckUserDriveWriteAccess(userId, driveId)
+	if err != nil {
+		return err
+	}
+	if !hasAccess {
+		return errors.New("user does not have write access to this drive")
+	}
+	drive, err := dm.Store.GetDriveByID(driveId)
+	if err != nil {
+		return fmt.Errorf("diskmanager: get drive by id %q: %w", driveId, err)
+	}
+	pathKey := filepath.Join(dm.Home, drive.Slug, subFolder)
+	prefix := filepath.Dir(pathKey)
+	if err := os.MkdirAll(pathKey, 0755); err != nil {
+		return fmt.Errorf("diskmanager: create dir %q: %w", pathKey, err)
+	}
+	name := filepath.Base(subFolder)
+	_, err = dm.Store.CreateDirectoryMetadataV2(name, pathKey, prefix, drive.ID.String())
+	if err != nil {
+		if cleanupErr := os.RemoveAll(pathKey); cleanupErr != nil {
+			fmt.Printf("warning: failed to clean up directory after db error: %v\n", cleanupErr)
+		}
+		return fmt.Errorf("diskmanager: create directory metadata for dir %q: %w", pathKey, err)
+	}
+	return nil
+}
+
 func (dm *DiskManager) DeleteDir(relPath, driveId, userId string) error {
 	hasAccess, err := dm.CheckUserDriveWriteAccess(userId, driveId)
 	if err != nil {

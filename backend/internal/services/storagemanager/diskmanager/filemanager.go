@@ -106,6 +106,88 @@ func (dm *DiskManager) DownloadFile(fileId string, driveId, userId string) (*os.
 	return f, &md, nil
 }
 
+func (dm *DiskManager) UploadFileV2(relPath, driveId, userId string, file multipart.File, fileHeader *multipart.FileHeader) error {
+	hasAccess, err := dm.CheckUserDriveWriteAccess(userId, driveId)
+	if err != nil {
+		return err
+	}
+	if !hasAccess {
+		return errors.New("user does not have write access to this drive")
+	}
+	drive, err := dm.Store.GetDriveByID(driveId)
+	if err != nil {
+		return fmt.Errorf("diskmanager: get drive by id %q: %w", driveId, err)
+	}
+	prefix := filepath.Join(dm.Home, drive.Slug, relPath)
+	pathKey := filepath.Join(prefix, fileHeader.Filename)
+	outFile, err := os.Create(pathKey)
+	if err != nil {
+		return fmt.Errorf("diskmanager: create file %q: %w", pathKey, err)
+	}
+	defer outFile.Close()
+	if _, err := io.Copy(outFile, file); err != nil {
+		return fmt.Errorf("diskmanager: save file %q: %w", pathKey, err)
+	}
+	contentType := fileHeader.Header.Get("Content-Type")
+	sizeInMb := float64(fileHeader.Size) / (1 << 20)
+	_, err = dm.Store.CreateFileMetadataV2(fileHeader.Filename, pathKey, prefix, contentType, driveId, userId, sizeInMb)
+	if err != nil {
+		if cleanupErr := os.Remove(pathKey); cleanupErr != nil {
+			fmt.Printf("warning: failed to clean up file after db error: %v\n", cleanupErr)
+		}
+		return fmt.Errorf("diskmanager: create file metadata for file %q: %w", pathKey, err)
+	}
+	return nil
+}
+
+func (dm *DiskManager) GetFilesV2(relPath, driveId, userId string) ([]storage_types.DirEntry, error) {
+	hasAccess, err := dm.CheckUserHasDriveAccess(userId, driveId)
+	if err != nil {
+		return nil, err
+	}
+	if !hasAccess {
+		return nil, errors.New("user does not have access to this drive")
+	}
+	drive, err := dm.Store.GetDriveByID(driveId)
+	if err != nil {
+		return nil, fmt.Errorf("diskmanager: get drive by id %q: %w", driveId, err)
+	}
+	dirPrefixes := [2]string{
+		filepath.Join(dm.Home, drive.Slug, relPath),
+		filepath.Join(dm.Home, drive.Slug, relPath) + "/",
+	}
+	files, err := dm.Store.GetFileMetadataByDirPrefix(drive.ID.String(), dirPrefixes)
+	if err != nil {
+		return nil, fmt.Errorf("diskmanager: list files for prefix %q: %w", dirPrefixes, err)
+	}
+	dirs, err := dm.Store.GetDirectoriesByParentPrefix(drive.ID.String(), dirPrefixes)
+	if err != nil {
+		return nil, fmt.Errorf("diskmanager: list dirs for prefix %q: %w", dirPrefixes, err)
+	}
+	var entries []storage_types.DirEntry
+	for _, f := range files {
+		entries = append(entries, storage_types.DirEntry{
+			ID:             f.ID.String(),
+			Name:           f.Name,
+			IsDir:          false,
+			Extension:      filepath.Ext(f.Name),
+			Size:           f.SizeInMb,
+			Path:           f.PathKey,
+			NavigationPath: filepath.Join(relPath, f.Name),
+		})
+	}
+	for _, d := range dirs {
+		entries = append(entries, storage_types.DirEntry{
+			ID:             d.ID.String(),
+			Name:           d.Name,
+			IsDir:          true,
+			Path:           d.PathKey,
+			NavigationPath: filepath.Join(relPath, d.Name),
+		})
+	}
+	return entries, nil
+}
+
 func (dm *DiskManager) GetFiles(relPath, driveId, userId string) ([]storage_types.DirEntry, error) {
 	hasAccess, err := dm.CheckUserHasDriveAccess(userId, driveId)
 	if err != nil {

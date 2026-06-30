@@ -33,12 +33,15 @@ func main() {
 	}
 	var s3ConfigPath string
 	s3ConfigPath, err = config.DefaultS3Paths()
+	fmt.Printf("Running in %s mode\n", *serverMode)
 	if err != nil && *serverMode == "biz" {
 		panic(err)
 	}
 	if err := config.Init(*serverMode, s3ConfigPath); err != nil {
 		panic(err)
 	}
+	fmt.Printf("Config initialized\n")
+	fmt.Println(config.Config)
 
 	s, err := store.GetStore(config.ProjectBaseDir)
 	if err != nil {

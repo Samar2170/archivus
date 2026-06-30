@@ -20,7 +20,6 @@ type Drive struct {
 	OwnerType UserType `gorm:"not null"`
 
 	Prefix string `gorm:"index"` // archivus directory path for local disk , //  prefix in case of S3
-	Path   string `gorm:"index"`
 
 	DefaultWriteAccess bool `gorm:"not null;default:false"`
 }
@@ -41,6 +40,12 @@ type DirectoryMetadata struct {
 	DriveID uuid.UUID `gorm:"type:uuid;not null"`
 
 	SizeInMb float64 `gorm:"not null"`
+
+	ParentID *uuid.UUID         `gorm:"type:uuid;index"` // self-referencing foreign key for parent directory
+	Parent   *DirectoryMetadata `gorm:"foreignKey:ParentID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
+
+	CreatedBy   User      `gorm:"foreignKey:CreatedByID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
+	CreatedByID uuid.UUID `gorm:"type:uuid"`
 }
 
 func (d *DirectoryMetadata) BeforeCreate(tx *gorm.DB) (err error) {

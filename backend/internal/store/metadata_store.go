@@ -89,3 +89,56 @@ func (s *Store) UpdateFileMetadataPaths(id, absPath, s3Key, relPath, dirPath str
 	})
 	return result.Error
 }
+
+// V2 methods: PathKey and Prefix are stored correctly.
+// PathKey = the object/file key (S3 key or absolute disk path).
+// Prefix  = the parent directory key with trailing slash (S3) or absolute dir path (disk).
+
+func (s *Store) CreateFileMetadataV2(name, pathKey, prefix, contentType, driveID, uploadedByID string, sizeInMb float64) (models.FileMetadata, error) {
+	driveIDParsed, err := uuid.Parse(driveID)
+	if err != nil {
+		return models.FileMetadata{}, fmt.Errorf("invalid drive ID: %w", err)
+	}
+	uploadedByIDParsed, err := uuid.Parse(uploadedByID)
+	if err != nil {
+		return models.FileMetadata{}, fmt.Errorf("invalid uploaded by ID: %w", err)
+	}
+	fm := models.FileMetadata{
+		Name:         name,
+		PathKey:      pathKey,
+		Prefix:       prefix,
+		ContentType:  contentType,
+		DriveID:      driveIDParsed,
+		UploadedByID: uploadedByIDParsed,
+		SizeInMb:     sizeInMb,
+	}
+	result := s.conn().Create(&fm)
+	return fm, result.Error
+}
+
+func (s *Store) CreateDirectoryMetadataV2(name, pathKey, prefix, driveID string) (models.DirectoryMetadata, error) {
+	driveIDParsed, err := uuid.Parse(driveID)
+	if err != nil {
+		return models.DirectoryMetadata{}, fmt.Errorf("invalid drive ID: %w", err)
+	}
+	dm := models.DirectoryMetadata{
+		Name:    name,
+		PathKey: pathKey,
+		Prefix:  prefix,
+		DriveID: driveIDParsed,
+	}
+	result := s.conn().Create(&dm)
+	return dm, result.Error
+}
+
+func (s *Store) GetFileMetadataByDirPrefix(driveID string, prefixes [2]string) ([]models.FileMetadata, error) {
+	var files []models.FileMetadata
+	result := s.conn().Where("drive_id = ? AND prefix IN ?", driveID, prefixes).Find(&files)
+	return files, result.Error
+}
+
+func (s *Store) GetDirectoriesByParentPrefix(driveID string, prefixes [2]string) ([]models.DirectoryMetadata, error) {
+	var dirs []models.DirectoryMetadata
+	result := s.conn().Where("drive_id = ? AND prefix IN ?", driveID, prefixes).Find(&dirs)
+	return dirs, result.Error
+}

@@ -3,6 +3,7 @@ package s3manager
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"time"
 
@@ -23,6 +24,9 @@ func New(accountID, accessKey, secretKey, bucketName string) (*Client, error) {
 	s3Client, err := newS3Client(accountID, accessKey, secretKey)
 	if err != nil {
 		return nil, err
+	}
+	if accessKey == "" || secretKey == "" {
+		return nil, fmt.Errorf("access key and secret key must be provided")
 	}
 	return &Client{
 		s3:         s3Client,

@@ -74,6 +74,22 @@ func (a *AuthService) SetupNewDrive(name, userID string) (models.Drive, error) {
 	return drive, nil
 }
 
+// Authenticate validates a username/password pair (used by the WebDAV Basic
+// Auth middleware) and returns the user ID on success.
+func (a *AuthService) Authenticate(username, password string) (string, error) {
+	user, err := a.Store.GetUserByUsername(username)
+	if err != nil {
+		return "", fmt.Errorf("user not found: %w", err)
+	}
+	if password == "" {
+		return "", fmt.Errorf("password required")
+	}
+	if user.Password != utils.HashString(password) {
+		return "", fmt.Errorf("invalid password")
+	}
+	return user.ID.String(), nil
+}
+
 func (a *AuthService) Login(username, password, pin string) (token string, err error) {
 	user, err := a.Store.GetUserByUsername(username)
 	if err != nil {

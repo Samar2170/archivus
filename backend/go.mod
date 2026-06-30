@@ -49,8 +49,9 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.44 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/metric v1.43.0 // indirect
-	golang.org/x/sys v0.42.0 // indirect
-	golang.org/x/text v0.36.0 // indirect
+	golang.org/x/net v0.56.0 // indirect
+	golang.org/x/sys v0.46.0 // indirect
+	golang.org/x/text v0.38.0 // indirect
 	gopkg.in/go-playground/assert.v1 v1.2.1 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 )

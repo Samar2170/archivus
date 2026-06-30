@@ -131,6 +131,60 @@ func (s *Store) CreateDirectoryMetadataV2(name, pathKey, prefix, driveID string)
 	return dm, result.Error
 }
 
+func (s *Store) GetFileMetadataByPathKey(driveID, pathKey string) (models.FileMetadata, error) {
+	var fileMetadata models.FileMetadata
+	result := s.conn().Where("drive_id = ? AND path_key = ?", driveID, pathKey).First(&fileMetadata)
+	return fileMetadata, result.Error
+}
+
+func (s *Store) GetDirectoryMetadataByPathKey(driveID, pathKey string) (models.DirectoryMetadata, error) {
+	var dirMetadata models.DirectoryMetadata
+	result := s.conn().Where("drive_id = ? AND path_key = ?", driveID, pathKey).First(&dirMetadata)
+	return dirMetadata, result.Error
+}
+
+func (s *Store) UpdateFileMetadataByID(id string, fields map[string]interface{}) error {
+	result := s.conn().Model(&models.FileMetadata{}).Where("id = ?", id).Updates(fields)
+	return result.Error
+}
+
+func (s *Store) UpdateDirectoryMetadataByID(id string, fields map[string]interface{}) error {
+	result := s.conn().Model(&models.DirectoryMetadata{}).Where("id = ?", id).Updates(fields)
+	return result.Error
+}
+
+// ListFileMetadataBySubtree returns the file at pathKey plus every file beneath it.
+func (s *Store) ListFileMetadataBySubtree(driveID, pathKey string) ([]models.FileMetadata, error) {
+	var files []models.FileMetadata
+	result := s.conn().
+		Where("drive_id = ? AND (path_key = ? OR path_key LIKE ?)", driveID, pathKey, pathKey+"/%").
+		Find(&files)
+	return files, result.Error
+}
+
+// ListDirectoryMetadataBySubtree returns the directory at pathKey plus every directory beneath it.
+func (s *Store) ListDirectoryMetadataBySubtree(driveID, pathKey string) ([]models.DirectoryMetadata, error) {
+	var dirs []models.DirectoryMetadata
+	result := s.conn().
+		Where("drive_id = ? AND (path_key = ? OR path_key LIKE ?)", driveID, pathKey, pathKey+"/%").
+		Find(&dirs)
+	return dirs, result.Error
+}
+
+// DeleteSubtreeMetadata removes the file/directory rows at pathKey and everything beneath it.
+func (s *Store) DeleteSubtreeMetadata(driveID, pathKey string) error {
+	return s.Transaction(func(tx *Store) error {
+		if err := tx.conn().
+			Where("drive_id = ? AND (path_key = ? OR path_key LIKE ?)", driveID, pathKey, pathKey+"/%").
+			Delete(&models.FileMetadata{}).Error; err != nil {
+			return err
+		}
+		return tx.conn().
+			Where("drive_id = ? AND (path_key = ? OR path_key LIKE ?)", driveID, pathKey, pathKey+"/%").
+			Delete(&models.DirectoryMetadata{}).Error
+	})
+}
+
 func (s *Store) GetFileMetadataByDirPrefix(driveID string, prefixes [2]string) ([]models.FileMetadata, error) {
 	var files []models.FileMetadata
 	result := s.conn().Where("drive_id = ? AND prefix IN ?", driveID, prefixes).Find(&files)

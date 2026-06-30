@@ -42,5 +42,12 @@ func GetServer(authService *auth.AuthService) *http.Server {
 	// protected.HandleFunc("/storage/file/move", storageHandler.MoveFileHandler).Methods(http.MethodPost)
 	protected.HandleFunc("/storage/files", storageHandler.GetFilesHandler).Methods(http.MethodPost)
 
+	// WebDAV: each drive is mounted at /webdav/{slug}/..., authenticated via
+	// HTTP Basic Auth so native clients (Finder, Explorer, rclone) can mount it.
+	webdavHandler := NewWebDAVHandler(authService)
+	webdav := router.PathPrefix("/webdav/{slug}").Subrouter()
+	webdav.Use(BasicAuthMiddleware(authService))
+	webdav.PathPrefix("").Handler(webdavHandler)
+
 	return &http.Server{Handler: CORSMiddleware(router), Addr: ":8080"}
 }

@@ -25,7 +25,10 @@ func CORSMiddleware(next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
 		}
 
-		if r.Method == http.MethodOptions {
+		// WebDAV clients use OPTIONS to discover capabilities (the DAV header),
+		// so let those requests reach the webdav handler instead of answering
+		// them here as a CORS preflight.
+		if r.Method == http.MethodOptions && !strings.HasPrefix(r.URL.Path, "/webdav/") {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -38,6 +41,31 @@ func HomeMiddleware(as *auth.AuthService) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// BasicAuthMiddleware authenticates WebDAV clients via HTTP Basic Auth and
+// stores the resolved user ID in the request context (same key as the REST
+// AuthMiddleware). On failure it sends a WWW-Authenticate challenge so native
+// clients (Finder, Explorer, rclone) prompt for credentials.
+func BasicAuthMiddleware(as *auth.AuthService) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			username, password, ok := r.BasicAuth()
+			if !ok {
+				w.Header().Set("WWW-Authenticate", `Basic realm="archivus"`)
+				response.UnauthorizedResponse(w, "missing basic auth credentials")
+				return
+			}
+			userID, err := as.Authenticate(username, password)
+			if err != nil {
+				w.Header().Set("WWW-Authenticate", `Basic realm="archivus"`)
+				response.UnauthorizedResponse(w, "invalid credentials")
+				return
+			}
+			ctx := context.WithValue(r.Context(), archivus_constants.ContextKey(archivus_constants.UserIdKey), userID)
+			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }

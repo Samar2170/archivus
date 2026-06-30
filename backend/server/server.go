@@ -42,5 +42,5 @@ func GetServer(authService *auth.AuthService) *http.Server {
 	// protected.HandleFunc("/storage/file/move", storageHandler.MoveFileHandler).Methods(http.MethodPost)
 	protected.HandleFunc("/storage/files", storageHandler.GetFilesHandler).Methods(http.MethodPost)
 
-	return &http.Server{Handler: router, Addr: ":8080"}
+	return &http.Server{Handler: CORSMiddleware(router), Addr: ":8080"}
 }

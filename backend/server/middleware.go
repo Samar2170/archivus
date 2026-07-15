@@ -5,6 +5,7 @@ import (
 	"archivus/internal/services/auth"
 	"archivus/pkg/response"
 	"context"
+	"encoding/json"
 	"net/http"
 	"strings"
 )
@@ -49,19 +50,32 @@ func HomeMiddleware(as *auth.AuthService) func(next http.Handler) http.Handler {
 // stores the resolved user ID in the request context (same key as the REST
 // AuthMiddleware). On failure it sends a WWW-Authenticate challenge so native
 // clients (Finder, Explorer, rclone) prompt for credentials.
+// basicAuthChallenge sends a 401 with a WWW-Authenticate header. Native WebDAV
+// clients (Finder, Explorer, Dolphin/KIO, rclone) first probe without
+// credentials and only prompt for / send them when they receive a 401. A 403
+// tells them access is forbidden outright, so they never authenticate and the
+// mount appears to "not exist".
+func basicAuthChallenge(w http.ResponseWriter, err string) {
+	w.Header().Set("WWW-Authenticate", `Basic realm="archivus"`)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusUnauthorized)
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": "Unauthorized",
+		"error":   err,
+	})
+}
+
 func BasicAuthMiddleware(as *auth.AuthService) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			username, password, ok := r.BasicAuth()
 			if !ok {
-				w.Header().Set("WWW-Authenticate", `Basic realm="archivus"`)
-				response.UnauthorizedResponse(w, "missing basic auth credentials")
+				basicAuthChallenge(w, "missing basic auth credentials")
 				return
 			}
 			userID, err := as.Authenticate(username, password)
 			if err != nil {
-				w.Header().Set("WWW-Authenticate", `Basic realm="archivus"`)
-				response.UnauthorizedResponse(w, "invalid credentials")
+				basicAuthChallenge(w, "invalid credentials")
 				return
 			}
 			ctx := context.WithValue(r.Context(), archivus_constants.ContextKey(archivus_constants.UserIdKey), userID)

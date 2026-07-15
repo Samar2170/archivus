@@ -2,8 +2,13 @@ package webdavfs
 
 import (
 	storage_types "archivus/internal/services/storagemanager/types"
+	"context"
 	"io/fs"
+	"mime"
+	"path/filepath"
 	"time"
+
+	"golang.org/x/net/webdav"
 )
 
 // fileInfo adapts a storage StatInfo / DirEntry into an os.FileInfo for the
@@ -32,3 +37,16 @@ func (fi fileInfo) Mode() fs.FileMode {
 func (fi fileInfo) ModTime() time.Time { return fi.modTime }
 func (fi fileInfo) IsDir() bool        { return fi.isDir }
 func (fi fileInfo) Sys() any           { return nil }
+
+// ContentType satisfies webdav's ContentTyper interface. Without it, PROPFIND
+// opens every file just to sniff a MIME type — which on the S3 backend means
+// downloading each object in full. Resolving from the extension avoids that.
+func (fi fileInfo) ContentType(ctx context.Context) (string, error) {
+	if fi.isDir {
+		return "", webdav.ErrNotImplemented
+	}
+	if ct := mime.TypeByExtension(filepath.Ext(fi.name)); ct != "" {
+		return ct, nil
+	}
+	return "application/octet-stream", nil
+}

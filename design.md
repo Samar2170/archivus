@@ -29,3 +29,11 @@
 2. Backup service
 3. Syncer service (outside backend)
 4. Indexing, photo, and maybe even search indexing service
+
+
+
+##### Tasks
+* Add thumbnail service
+* image analysis service (metadata extraction, face detection, etc.)
+* webdav server
+* 

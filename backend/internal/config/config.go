@@ -49,11 +49,11 @@ func (c *Configuration) String() string {
 
 // Init sets ProjectBaseDir, writes a default config if none exists, then loads
 // it into Config. Must be called before any other package that reads Config.
-func Init(serverMode, s3ConfigPath string) error {
+func Init(serverMode string, s3ConfigPaths []string) error {
 	var s3Enabled bool
 	if serverMode == "biz" {
 		var err error
-		S3Cfg, err = LoadS3Config(s3ConfigPath)
+		S3Cfg, err = LoadS3Config(s3ConfigPaths)
 		if err != nil {
 			return fmt.Errorf("load s3 config: %w", err)
 		}

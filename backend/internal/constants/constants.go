@@ -10,6 +10,8 @@ const (
 	SettingsDir    = ".archivus"
 	ConfigFileName = "config.yaml"
 
+	ThumbnailDirName = ".thumbnails"
+
 	MaxUploadSize = 100 << 20 // 100 MB
 )
 

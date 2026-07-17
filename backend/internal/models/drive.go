@@ -74,6 +74,8 @@ type FileMetadata struct {
 	IsImage                    bool `gorm:"not null;default:false"`
 	CompressedVersionAvailable bool `gorm:"not null;default:false"`
 
+	ThumbnailPath string `gorm:"not null;default:''"` // path to thumbnail image for the file, should contain path after thumbnail dir
+
 	Tags string `gorm:"type:text"`
 
 	Encrypted bool `gorm:"not null;default:false"`

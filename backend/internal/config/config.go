@@ -29,6 +29,8 @@ type Configuration struct {
 	ServerSalt         string `yaml:"server_salt"`
 	BackendProxyUrl    string `yaml:"backend_proxy_url"`
 
+	ThumbnailDir string `yaml:"thumbnail_dir"`
+
 	S3Enabled bool `yaml:"s3_enabled"`
 }
 
@@ -117,6 +119,10 @@ func newDefault(homeDir string, s3Enabled bool) (*Configuration, error) {
 	if err := os.MkdirAll(logsDir, os.ModePerm); err != nil {
 		return nil, fmt.Errorf("create logs dir: %w", err)
 	}
+	thumbnailDir := filepath.Join(archivusHome, archivus_constants.ThumbnailDirName)
+	if err := os.MkdirAll(thumbnailDir, os.ModePerm); err != nil {
+		return nil, fmt.Errorf("create thumbnail dir: %w", err)
+	}
 	return &Configuration{
 		DefaultWriteAccess: false,
 		AllowUserDrive:     true,
@@ -124,6 +130,7 @@ func newDefault(homeDir string, s3Enabled bool) (*Configuration, error) {
 		SecretKey:          sk,
 		ArchivusHome:       archivusHome,
 		ServerSalt:         ss,
+		ThumbnailDir:       thumbnailDir,
 		S3Enabled:          s3Enabled,
 	}, nil
 }

@@ -9,8 +9,16 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
-// should be false in production
-var DEBUG = true
+// debugMode is overridden at build time by release builds:
+//
+//	go build -ldflags "-X archivus/internal/config.debugMode=false"
+//
+// The linker can only set strings, hence the indirection through DEBUG.
+var debugMode = "true"
+
+// DEBUG keeps config and user data in the working directory instead of the
+// user's home directory. It must be false in production.
+var DEBUG = debugMode == "true"
 
 type Configuration struct {
 	DefaultWriteAccess bool   `yaml:"default_write_access"`
@@ -41,11 +49,11 @@ func (c *Configuration) String() string {
 
 // Init sets ProjectBaseDir, writes a default config if none exists, then loads
 // it into Config. Must be called before any other package that reads Config.
-func Init(serverMode, s3ConfigPath string) error {
+func Init(serverMode string, s3ConfigPaths []string) error {
 	var s3Enabled bool
 	if serverMode == "biz" {
 		var err error
-		S3Cfg, err = LoadS3Config(s3ConfigPath)
+		S3Cfg, err = LoadS3Config(s3ConfigPaths)
 		if err != nil {
 			return fmt.Errorf("load s3 config: %w", err)
 		}

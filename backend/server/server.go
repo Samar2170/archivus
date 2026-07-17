@@ -4,6 +4,7 @@ import (
 	"archivus/internal/handlers"
 	"archivus/internal/services/auth"
 	"archivus/pkg/response"
+	"log"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -41,6 +42,15 @@ func GetServer(authService *auth.AuthService) *http.Server {
 	protected.HandleFunc("/storage/file/download", storageHandler.DownloadFileHandler).Methods(http.MethodGet)
 	// protected.HandleFunc("/storage/file/move", storageHandler.MoveFileHandler).Methods(http.MethodPost)
 	protected.HandleFunc("/storage/files", storageHandler.GetFilesHandler).Methods(http.MethodPost)
+
+	// Anything that is not an API route is the frontend's to route. Serving it
+	// from the same origin means the browser never needs CORS.
+	if staticDir := DefaultStaticDir(); hasFrontend(staticDir) {
+		log.Printf("serving frontend from %s", staticDir)
+		router.NotFoundHandler = SPAHandler(staticDir)
+	} else {
+		log.Printf("no frontend found at %s, running API only", staticDir)
+	}
 
 	return &http.Server{Handler: CORSMiddleware(router), Addr: ":8080"}
 }

@@ -31,13 +31,13 @@ func main() {
 		print(parser.Usage(err))
 		return
 	}
-	var s3ConfigPath string
-	s3ConfigPath, err = config.DefaultS3Paths()
+	var s3ConfigPaths []string
+	s3ConfigPaths, err = config.DefaultS3Paths()
 	fmt.Printf("Running in %s mode\n", *serverMode)
 	if err != nil && *serverMode == "biz" {
 		panic(err)
 	}
-	if err := config.Init(*serverMode, s3ConfigPath); err != nil {
+	if err := config.Init(*serverMode, s3ConfigPaths); err != nil {
 		panic(err)
 	}
 	fmt.Printf("Config initialized\n")

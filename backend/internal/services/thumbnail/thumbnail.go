@@ -39,18 +39,30 @@ func NewDiskService(home, thumbnailDir string, store *store.Store) *Service {
 	return &Service{home: home, thumbnailDir: thumbnailDir, store: store}
 }
 
-// GenerateThumbnail generates a JPEG thumbnail for the image at pathKey and
+// GenerateThumbnail generates a JPEG thumbnail for the file at pathKey and
 // stores it in the backend-appropriate thumbnail location. Returns the thumbnail
-// key (S3) or absolute path (disk). Returns an error if the file is not a
-// supported image (JPEG, PNG, GIF).
+// key (S3) or absolute path (disk). Supported types are images (JPEG, PNG, GIF),
+// videos (via ffmpeg) and PDFs (via ghostscript). Returns an error for any other
+// file type.
 func (s *Service) GenerateThumbnail(ctx context.Context, pathKey string) (string, error) {
 	if !s.s3Enabled {
 		pathKey = filepath.Join(s.home, pathKey)
 	}
-	format := filepath.Ext(pathKey)
-	if format != ".jpg" && format != ".jpeg" && format != ".png" && format != ".JPG" {
-		return "", fmt.Errorf("no file extension for %q", pathKey)
+	switch strings.ToLower(filepath.Ext(pathKey)) {
+	case ".jpg", ".jpeg", ".png", ".gif":
+		return s.generateImageThumbnail(ctx, pathKey)
+	case ".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v":
+		return s.generateVideoThumbnail(ctx, pathKey)
+	case ".pdf":
+		return s.generatePDFThumbnail(ctx, pathKey)
+	default:
+		return "", fmt.Errorf("unsupported file type for thumbnail %q", pathKey)
 	}
+}
+
+// generateImageThumbnail decodes a supported image, downscales it and writes a
+// JPEG thumbnail.
+func (s *Service) generateImageThumbnail(ctx context.Context, pathKey string) (string, error) {
 	r, err := s.openReader(ctx, pathKey)
 	if err != nil {
 		return "", err
@@ -85,6 +97,37 @@ func (s *Service) openReader(ctx context.Context, pathKey string) (io.ReadCloser
 		return nil, fmt.Errorf("open file %q: %w", pathKey, err)
 	}
 	return f, nil
+}
+
+// localSourcePath returns a path on the local filesystem for the source file
+// along with a cleanup func the caller must always defer. External tools
+// (ffmpeg, ghostscript) need a real file on disk: for disk backends this is the
+// file itself; for S3 the object is first downloaded to a temp file.
+func (s *Service) localSourcePath(ctx context.Context, pathKey string) (string, func(), error) {
+	if !s.s3Enabled {
+		return pathKey, func() {}, nil
+	}
+	r, err := s.openReader(ctx, pathKey)
+	if err != nil {
+		return "", func() {}, err
+	}
+	defer r.Close()
+
+	tmp, err := os.CreateTemp("", "archivus-src-*"+filepath.Ext(pathKey))
+	if err != nil {
+		return "", func() {}, fmt.Errorf("create temp file: %w", err)
+	}
+	cleanup := func() { os.Remove(tmp.Name()) }
+	if _, err := io.Copy(tmp, r); err != nil {
+		tmp.Close()
+		cleanup()
+		return "", func() {}, fmt.Errorf("download s3 object %q: %w", pathKey, err)
+	}
+	if err := tmp.Close(); err != nil {
+		cleanup()
+		return "", func() {}, fmt.Errorf("write temp file: %w", err)
+	}
+	return tmp.Name(), cleanup, nil
 }
 
 // writeThumb always writes the thumbnail to the local thumbnail directory,

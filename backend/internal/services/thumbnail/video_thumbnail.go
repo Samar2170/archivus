@@ -1,85 +1,92 @@
 package thumbnail
 
-// import (
-// 	"archivus/pkg/utils"
-// 	"errors"
-// 	"fmt"
-// 	"os"
-// 	"os/exec"
-// 	"path/filepath"
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"image"
+	"image/jpeg"
+	"os"
+	"os/exec"
+)
 
-// 	"github.com/disintegration/imaging"
-// )
+// generateVideoThumbnail extracts a single frame ~1s into the video with ffmpeg,
+// scales it to the thumbnail width and writes it as JPEG.
+func (s *Service) generateVideoThumbnail(ctx context.Context, pathKey string) (string, error) {
+	src, cleanup, err := s.localSourcePath(ctx, pathKey)
+	if err != nil {
+		return "", err
+	}
+	defer cleanup()
 
-// func ensureVideoThumbnail(pathKey string) (string, error) {
+	// Pipe stdout to avoid ffmpeg's image2 muxer failing on paths with spaces.
+	cmd := exec.CommandContext(ctx, "ffmpeg",
+		"-y",
+		"-i", src,
+		"-ss", "00:00:01",
+		"-vframes", "1",
+		"-vf", fmt.Sprintf("scale=%d:-2", maxThumbWidth),
+		"-f", "mjpeg",
+		"pipe:1",
+	)
+	jpegData, err := cmd.Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return "", fmt.Errorf("ffmpeg thumbnail for %q: %w\nstderr: %s", pathKey, err, exitErr.Stderr)
+		}
+		return "", fmt.Errorf("ffmpeg thumbnail for %q: %w", pathKey, err)
+	}
 
-// 	// Pipe stdout to avoid ffmpeg's image2 muxer failing on paths with spaces
-// 	cmd := exec.Command("ffmpeg",
-// 		"-y",
-// 		"-i", fullSourcePath,
-// 		"-ss", "00:00:01",
-// 		"-vframes", "1",
-// 		"-vf", "scale=200:-2",
-// 		"-f", "mjpeg",
-// 		"pipe:1",
-// 	)
-// 	jpegData, err := cmd.Output()
-// 	if err != nil {
-// 		var exitErr *exec.ExitError
-// 		if errors.As(err, &exitErr) {
-// 			utils.LogError("ensureVideoThumbnail", "Failed to generate video thumbnail", fmt.Errorf("%w\nstderr: %s", err, exitErr.Stderr))
-// 		} else {
-// 			utils.LogError("ensureVideoThumbnail", "Failed to generate video thumbnail", err)
-// 		}
-// 		return "", nil
-// 	}
+	return s.writeThumb(pathKey, jpegData)
+}
 
-// 	if err := os.WriteFile(fullThumbPath, jpegData, 0644); err != nil {
-// 		utils.LogError("ensureVideoThumbnail", "Failed to write video thumbnail", err)
-// 		return "", nil
-// 	}
+// generatePDFThumbnail renders the first page of a PDF to JPEG with ghostscript,
+// then downscales it to the thumbnail bounds and writes it.
+func (s *Service) generatePDFThumbnail(ctx context.Context, pathKey string) (string, error) {
+	src, cleanup, err := s.localSourcePath(ctx, pathKey)
+	if err != nil {
+		return "", err
+	}
+	defer cleanup()
 
-// 	return thumbRelPath, nil
-// }
+	tmpOut, err := os.CreateTemp("", "archivus-pdf-*.jpg")
+	if err != nil {
+		return "", fmt.Errorf("create temp file: %w", err)
+	}
+	tmpOut.Close()
+	defer os.Remove(tmpOut.Name())
 
-// func ensurePDFThumbnail(pathKey string) (string, error) {
+	cmd := exec.CommandContext(ctx, "gs",
+		"-dNOPAUSE", "-dBATCH", "-dQUIET",
+		"-sDEVICE=jpeg",
+		"-r72",
+		"-dFirstPage=1", "-dLastPage=1",
+		"-sOutputFile="+tmpOut.Name(),
+		src,
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("gs render pdf %q: %w\noutput: %s", pathKey, err, out)
+	}
 
-// 	if _, err := os.Stat(fullThumbPath); err == nil {
-// 		return thumbRelPath, nil
-// 	}
+	f, err := os.Open(tmpOut.Name())
+	if err != nil {
+		return "", fmt.Errorf("open pdf render %q: %w", pathKey, err)
+	}
+	defer f.Close()
 
-// 	if err := prepareThumbnailDir(filepath.Dir(fullThumbPath)); err != nil {
-// 		return "", utils.HandleError("ensurePDFThumbnail", "Failed to prepare thumbnail directory", err)
-// 	}
+	img, _, err := image.Decode(f)
+	if err != nil {
+		return "", fmt.Errorf("decode pdf render %q: %w", pathKey, err)
+	}
 
-// 	// Render first page to a temp JPEG, then resize with imaging
-// 	tmpFile := fullThumbPath + ".tmp.jpg"
-// 	defer os.Remove(tmpFile)
+	thumb := downscale(img, maxThumbWidth, maxThumbHeight)
 
-// 	cmd := exec.Command("gs",
-// 		"-dNOPAUSE", "-dBATCH",
-// 		"-sDEVICE=jpeg",
-// 		"-r72",
-// 		"-dFirstPage=1", "-dLastPage=1",
-// 		"-sOutputFile="+tmpFile,
-// 		fullSourcePath,
-// 	)
-// 	if out, err := cmd.CombinedOutput(); err != nil {
-// 		utils.LogError("ensurePDFThumbnail", "Failed to render PDF", fmt.Errorf("%w\noutput: %s", err, out))
-// 		return "", nil
-// 	}
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, thumb, &jpeg.Options{Quality: 80}); err != nil {
+		return "", fmt.Errorf("encode pdf thumbnail: %w", err)
+	}
 
-// 	img, err := imaging.Open(tmpFile)
-// 	if err != nil {
-// 		utils.LogError("ensurePDFThumbnail", "Failed to open PDF render", err)
-// 		return "", nil
-// 	}
-
-// 	thumbnail := imaging.Fit(img, 200, 200, imaging.Lanczos)
-// 	if err = imaging.Save(thumbnail, fullThumbPath); err != nil {
-// 		utils.LogError("ensurePDFThumbnail", "Failed to save PDF thumbnail", err)
-// 		return "", nil
-// 	}
-
-// 	return thumbRelPath, nil
-// }
+	return s.writeThumb(pathKey, buf.Bytes())
+}

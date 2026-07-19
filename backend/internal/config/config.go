@@ -98,6 +98,12 @@ func Init(serverMode string, s3ConfigPaths []string) error {
 	if err := os.MkdirAll(UsersDir, os.ModePerm); err != nil {
 		return fmt.Errorf("create users dir: %w", err)
 	}
+	if Config.ThumbnailDir == "" {
+		Config.ThumbnailDir = filepath.Join(Config.ArchivusHome, archivus_constants.ThumbnailDirName)
+	}
+	if err := os.MkdirAll(Config.ThumbnailDir, os.ModePerm); err != nil {
+		return fmt.Errorf("create thumbnail dir: %w", err)
+	}
 	return nil
 }
 

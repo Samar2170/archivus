@@ -1,5 +1,5 @@
 .archivus
-/backend/archivus
+/backend/archivus/*
 
 config.yaml
 s3_config.yaml

@@ -1,8 +1,8 @@
 package thumbnail
 
 import (
-	archivus_constants "archivus/internal/constants"
 	"archivus/internal/services/storagemanager/s3manager"
+	"archivus/internal/store"
 	"bytes"
 	"context"
 	"fmt"
@@ -13,7 +13,6 @@ import (
 	_ "image/png"
 	"io"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 )
@@ -24,21 +23,20 @@ const (
 )
 
 type Service struct {
-	s3     *s3manager.Client
-	bucket string
-
 	home         string // Config.ArchivusHome, used to compute relative thumbnail path
 	thumbnailDir string // Config.ThumbnailDir
 
 	s3Enabled bool
+	store     *store.Store
+	s3Manager *s3manager.S3Manager
 }
 
-func NewS3Service(s3Client *s3manager.Client, bucket string) *Service {
-	return &Service{s3: s3Client, bucket: bucket, s3Enabled: true}
+func NewS3Service(s3Manager *s3manager.S3Manager, thumbnailDir string, store *store.Store) *Service {
+	return &Service{s3Manager: s3Manager, s3Enabled: true, thumbnailDir: thumbnailDir, store: store}
 }
 
-func NewDiskService(home, thumbnailDir string) *Service {
-	return &Service{home: home, thumbnailDir: thumbnailDir}
+func NewDiskService(home, thumbnailDir string, store *store.Store) *Service {
+	return &Service{home: home, thumbnailDir: thumbnailDir, store: store}
 }
 
 // GenerateThumbnail generates a JPEG thumbnail for the image at pathKey and
@@ -46,6 +44,13 @@ func NewDiskService(home, thumbnailDir string) *Service {
 // key (S3) or absolute path (disk). Returns an error if the file is not a
 // supported image (JPEG, PNG, GIF).
 func (s *Service) GenerateThumbnail(ctx context.Context, pathKey string) (string, error) {
+	if !s.s3Enabled {
+		pathKey = filepath.Join(s.home, pathKey)
+	}
+	format := filepath.Ext(pathKey)
+	if format != ".jpg" && format != ".jpeg" && format != ".png" && format != ".JPG" {
+		return "", fmt.Errorf("no file extension for %q", pathKey)
+	}
 	r, err := s.openReader(ctx, pathKey)
 	if err != nil {
 		return "", err
@@ -64,12 +69,12 @@ func (s *Service) GenerateThumbnail(ctx context.Context, pathKey string) (string
 		return "", fmt.Errorf("encode thumbnail: %w", err)
 	}
 
-	return s.writeThumb(ctx, pathKey, buf.Bytes())
+	return s.writeThumb(pathKey, buf.Bytes())
 }
 
 func (s *Service) openReader(ctx context.Context, pathKey string) (io.ReadCloser, error) {
 	if s.s3Enabled {
-		obj, err := s.s3.GetObject(ctx, s.bucket, pathKey)
+		obj, err := s.s3Manager.Client.GetObject(ctx, s.s3Manager.Client.BucketName, pathKey)
 		if err != nil {
 			return nil, fmt.Errorf("get s3 object %q: %w", pathKey, err)
 		}
@@ -82,15 +87,10 @@ func (s *Service) openReader(ctx context.Context, pathKey string) (io.ReadCloser
 	return f, nil
 }
 
-func (s *Service) writeThumb(ctx context.Context, pathKey string, data []byte) (string, error) {
-	if s.s3Enabled {
-		thumbKey := s3ThumbnailKey(pathKey)
-		if err := s.s3.PutObjectBytes(ctx, s.bucket, thumbKey, "image/jpeg", data); err != nil {
-			return "", fmt.Errorf("upload thumbnail %q: %w", thumbKey, err)
-		}
-		return thumbKey, nil
-	}
-
+// writeThumb always writes the thumbnail to the local thumbnail directory,
+// regardless of whether S3 is enabled. When S3 is enabled the source image is
+// read from S3, but thumbnails are always stored on local disk.
+func (s *Service) writeThumb(pathKey string, data []byte) (string, error) {
 	thumbPath := localThumbnailPath(s.home, s.thumbnailDir, pathKey)
 	if err := os.MkdirAll(filepath.Dir(thumbPath), 0755); err != nil {
 		return "", fmt.Errorf("create thumbnail dir for %q: %w", thumbPath, err)
@@ -99,17 +99,6 @@ func (s *Service) writeThumb(ctx context.Context, pathKey string, data []byte) (
 		return "", fmt.Errorf("write thumbnail %q: %w", thumbPath, err)
 	}
 	return thumbPath, nil
-}
-
-// s3ThumbnailKey maps an S3 source key to its thumbnail key under the thumbnails prefix.
-// e.g. "drive-slug/subdir/photo.png" → ".thumbnails/drive-slug/subdir/photo.jpg"
-func s3ThumbnailKey(pathKey string) string {
-	dir := path.Dir(pathKey)
-	name := strings.TrimSuffix(path.Base(pathKey), path.Ext(pathKey))
-	if dir == "." {
-		return path.Join(archivus_constants.ThumbnailDirName, name+".jpg")
-	}
-	return path.Join(archivus_constants.ThumbnailDirName, dir, name+".jpg")
 }
 
 // localThumbnailPath maps an absolute file path to its thumbnail path under thumbnailDir.
@@ -163,4 +152,25 @@ func downscale(src image.Image, maxW, maxH int) image.Image {
 		}
 	}
 	return dst
+}
+
+func (s *Service) MakeThumbnails(ctx context.Context) error {
+	fmds, err := s.store.GetFileMetadatasWoThumbnails(ctx, 100) // Adjust limit as needed
+	if err != nil {
+		return fmt.Errorf("get file metadatas: %w", err)
+	}
+	if len(fmds) == 0 {
+		return nil // No files without thumbnails
+	}
+	for _, fmd := range fmds {
+		thumbnailKey, err := s.GenerateThumbnail(ctx, fmd.PathKey)
+		if err != nil {
+			fmt.Printf("generate thumbnail for %q: %v\n", fmd.PathKey, err)
+			continue
+		}
+		if err := s.store.UpdateFileMetadataThumbnailPath(fmd.ID.String(), thumbnailKey); err != nil {
+			fmt.Printf("update thumbnail path for %q: %v\n", fmd.PathKey, err)
+		}
+	}
+	return nil
 }

@@ -1,6 +1,7 @@
 package s3manager
 
 import (
+	"archivus/internal/config"
 	"archivus/internal/models"
 	storage_types "archivus/internal/services/storagemanager/types"
 	"context"
@@ -183,6 +184,7 @@ func (s *S3Manager) GetFilesV2(relPath, driveId, userId string) ([]storage_types
 			SignedUrl:      signedURL,
 			Size:           f.SizeInMb,
 			Path:           f.PathKey,
+			Thumbnail:      storage_types.ThumbnailURL(f.ThumbnailPath, config.Config.ThumbnailDir),
 			NavigationPath: filepath.Join(relPath, f.Name),
 		})
 	}

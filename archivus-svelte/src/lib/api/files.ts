@@ -40,6 +40,13 @@ export async function uploadFiles(
 	await apiUpload(paths.fileUpload, formData, onProgress);
 }
 
+// thumbnailUrl resolves a file's server-relative thumbnail path (e.g.
+// "/storage/thumbnails/…") into an absolute URL. Returns "" when the file has
+// no generated thumbnail.
+export function thumbnailUrl(file: FileMetaData): string {
+	return file.Thumbnail ? `${baseUrl}${file.Thumbnail}` : '';
+}
+
 export function downloadFileUrl(fileId: string, driveId: string): string {
 	const params = new URLSearchParams({ fileId, driveId });
 	return `${baseUrl}${paths.fileDownload}?${params.toString()}`;

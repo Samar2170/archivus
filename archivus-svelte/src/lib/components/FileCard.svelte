@@ -1,6 +1,9 @@
 <script lang="ts">
-	import type { FileMetaData } from "$lib/api/files";
-	import { Folder, FileText, File, Film, Image } from "lucide-svelte";
+	import { thumbnailUrl, type FileMetaData } from "$lib/api/files";
+	import { Folder } from "lucide-svelte";
+	import docIcon from "$assets/doct.webp";
+	import sheetIcon from "$assets/excelt.avif";
+	import genericIcon from "$assets/file.svg";
 
 	export let file: FileMetaData;
 	export let dragging = false;
@@ -11,14 +14,16 @@
 		return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 	}
 
-	$: ext = file.Extension?.toLowerCase() ?? "";
+	$: ext = file.Extension?.toLowerCase().replace(/^\./, "") ?? "";
 	$: isImage = ["jpg", "jpeg", "png", "gif", "webp", "svg"].includes(ext);
-	$: isVideo = ["mp4", "mov", "avi", "mkv", "webm"].includes(ext);
-	$: isPdf = ext === "pdf";
-	$: isDoc = ["doc", "docx"].includes(ext);
+	$: isDoc = ["doc", "docx", "txt", "rtf", "md"].includes(ext);
 	$: isSheet = ["xls", "xlsx", "csv"].includes(ext);
-	$: hasThumbnail =
-		!!(file.Thumbnail || file.SignedUrl) && (isImage || isVideo);
+	// Prefer a real generated thumbnail (images, videos, PDFs). Fall back to the
+	// full-size signed URL only for images that don't have one yet.
+	$: thumbSrc = thumbnailUrl(file) || (isImage ? file.SignedUrl : "");
+	$: hasThumbnail = !file.IsDir && !!thumbSrc;
+	// Static placeholder icon for file types without a backend thumbnail.
+	$: iconSrc = isDoc ? docIcon : isSheet ? sheetIcon : genericIcon;
 </script>
 
 <div
@@ -35,23 +40,18 @@
 			<Folder class="h-14 w-14 text-gray-600" fill="currentColor" />
 		{:else if hasThumbnail}
 			<img
-				src={file.Thumbnail || file.SignedUrl}
+				src={thumbSrc}
 				alt={file.Name}
 				class="h-full w-full object-cover rounded-lg"
 				loading="lazy"
 			/>
-		{:else if isPdf}
-			<FileText class="h-12 w-12 text-red-400" />
-		{:else if isDoc}
-			<FileText class="h-12 w-12 text-blue-500" />
-		{:else if isSheet}
-			<FileText class="h-12 w-12 text-green-500" />
-		{:else if isVideo}
-			<Film class="h-12 w-12 text-purple-400" />
-		{:else if isImage}
-			<Image class="h-12 w-12 text-pink-400" />
 		{:else}
-			<File class="h-12 w-12 text-gray-400" />
+			<img
+				src={iconSrc}
+				alt={file.Name}
+				class="h-14 w-14 object-contain"
+				loading="lazy"
+			/>
 		{/if}
 	</div>
 

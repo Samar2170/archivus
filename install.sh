@@ -162,6 +162,20 @@ case ":$PATH:" in
 *) echo "    Note: $PREFIX/bin is not on your PATH." ;;
 esac
 
+# Thumbnail generation shells out to these at runtime: ffmpeg for video
+# frames, ghostscript (gs) for PDF first pages. They are optional; without
+# them $PROJECT_NAME simply skips thumbnails for those file types.
+MISSING_DEPS=()
+command -v ffmpeg >/dev/null 2>&1 || MISSING_DEPS+=("ffmpeg")
+command -v gs >/dev/null 2>&1 || MISSING_DEPS+=("ghostscript")
+if [ "${#MISSING_DEPS[@]}" -gt 0 ]; then
+	echo
+	echo "    Note: for thumbnail generation, install: ${MISSING_DEPS[*]}"
+	echo "          Debian/Ubuntu:  sudo apt install ${MISSING_DEPS[*]}"
+	echo "          Fedora:         sudo dnf install ${MISSING_DEPS[*]}"
+	echo "          macOS (brew):   brew install ${MISSING_DEPS[*]}"
+fi
+
 if [ "$MODE" = biz ] && [ ! -f "$HOME/s3_config.yaml" ]; then
 	echo "    Note: biz mode reads S3 credentials from ~/s3_config.yaml, which does not exist yet."
 fi

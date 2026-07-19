@@ -2,6 +2,7 @@ package store
 
 import (
 	"archivus/internal/models"
+	"context"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -141,4 +142,15 @@ func (s *Store) GetDirectoriesByParentPrefix(driveID string, prefixes [2]string)
 	var dirs []models.DirectoryMetadata
 	result := s.conn().Where("drive_id = ? AND prefix IN ?", driveID, prefixes).Find(&dirs)
 	return dirs, result.Error
+}
+
+func (s *Store) GetFileMetadatasWoThumbnails(ctx context.Context, limit int) ([]models.FileMetadata, error) {
+	var files []models.FileMetadata
+	result := s.conn().Where("thumbnail_path IS NULL OR thumbnail_path = ''").Limit(limit).Find(&files)
+	return files, result.Error
+}
+
+func (s *Store) UpdateFileMetadataThumbnailPath(id, thumbnailPath string) error {
+	result := s.conn().Model(&models.FileMetadata{}).Where("id = ?", id).Update("thumbnail_path", thumbnailPath)
+	return result.Error
 }

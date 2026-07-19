@@ -1,6 +1,7 @@
 package diskmanager
 
 import (
+	"archivus/internal/config"
 	"archivus/internal/models"
 	storage_types "archivus/internal/services/storagemanager/types"
 	"errors"
@@ -173,6 +174,7 @@ func (dm *DiskManager) GetFilesV2(relPath, driveId, userId string) ([]storage_ty
 			Extension:      filepath.Ext(f.Name),
 			Size:           f.SizeInMb,
 			Path:           f.PathKey,
+			Thumbnail:      storage_types.ThumbnailURL(f.ThumbnailPath, config.Config.ThumbnailDir),
 			NavigationPath: filepath.Join(relPath, f.Name),
 		})
 	}

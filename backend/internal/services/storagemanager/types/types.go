@@ -1,5 +1,11 @@
 package types
 
+import (
+	archivus_constants "archivus/internal/constants"
+	"path/filepath"
+	"strings"
+)
+
 type DirEntry struct {
 	ID        string
 	Name      string
@@ -11,4 +17,18 @@ type DirEntry struct {
 	Thumbnail string
 
 	NavigationPath string
+}
+
+// ThumbnailURL maps a stored (absolute) thumbnail path under thumbnailDir to the
+// URL path served by the static thumbnail file server. Returns "" when there is
+// no thumbnail or the path escapes thumbnailDir.
+func ThumbnailURL(thumbnailPath, thumbnailDir string) string {
+	if thumbnailPath == "" {
+		return ""
+	}
+	rel, err := filepath.Rel(thumbnailDir, thumbnailPath)
+	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+		return ""
+	}
+	return archivus_constants.ThumbnailRoutePrefix + filepath.ToSlash(rel)
 }

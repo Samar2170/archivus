@@ -1,6 +1,8 @@
 package server
 
 import (
+	"archivus/internal/config"
+	archivus_constants "archivus/internal/constants"
 	"archivus/internal/handlers"
 	"archivus/internal/services/auth"
 	"archivus/pkg/response"
@@ -42,6 +44,14 @@ func GetServer(authService *auth.AuthService) *http.Server {
 	protected.HandleFunc("/storage/file/download", storageHandler.DownloadFileHandler).Methods(http.MethodGet)
 	// protected.HandleFunc("/storage/file/move", storageHandler.MoveFileHandler).Methods(http.MethodPost)
 	protected.HandleFunc("/storage/files", storageHandler.GetFilesHandler).Methods(http.MethodPost)
+
+	// Serve generated thumbnail images as static files. Thumbnails are loaded via
+	// <img> tags which cannot send Authorization headers, so this route is public;
+	// it only ever exposes downscaled preview JPEGs from the thumbnail directory.
+	thumbFS := http.FileServer(http.Dir(config.Config.ThumbnailDir))
+	router.PathPrefix(archivus_constants.ThumbnailRoutePrefix).Handler(
+		http.StripPrefix(archivus_constants.ThumbnailRoutePrefix, thumbFS),
+	).Methods(http.MethodGet)
 
 	// Anything that is not an API route is the frontend's to route. Serving it
 	// from the same origin means the browser never needs CORS.

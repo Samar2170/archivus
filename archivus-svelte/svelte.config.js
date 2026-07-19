@@ -12,7 +12,10 @@ const config = {
 			assets: 'build',
 			fallback: 'index.html',
 			precompress: false
-		})
+		}),
+		alias: {
+			$assets: 'src/assets'
+		}
 	}
 };
 

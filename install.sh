@@ -30,14 +30,15 @@ Usage: ./install.sh [options]
 
 Options:
   --prefix DIR   Install prefix (default: $PREFIX)
-  --mode MODE    Server mode for the systemd unit: home or biz (default: home)
-  --systemd      Install and enable a systemd service
+  --mode MODE    Server mode for the systemd units: home or biz (default: home)
+  --systemd      Install and enable systemd services (server + cron)
   --uninstall    Remove a previous installation
   -h, --help     Show this help
 
 Installs:
-  PREFIX/lib/$PROJECT_NAME/    binary and frontend assets
-  PREFIX/bin/$PROJECT_NAME     symlink onto PATH
+  PREFIX/lib/$PROJECT_NAME/       binaries and frontend assets
+  PREFIX/bin/$PROJECT_NAME        symlink onto PATH
+  PREFIX/bin/$PROJECT_NAME-cron   symlink onto PATH (background job scheduler)
 
 Config and data are created by $PROJECT_NAME on first run under
 ~/.archivus and are never written or overwritten by this script.
@@ -74,26 +75,34 @@ while [ $# -gt 0 ]; do
 	esac
 done
 
+CRON_NAME="$PROJECT_NAME-cron"
 LIB_DIR="$PREFIX/lib/$PROJECT_NAME"
 BIN_LINK="$PREFIX/bin/$PROJECT_NAME"
+CRON_BIN_LINK="$PREFIX/bin/$CRON_NAME"
 
 if [ "$(id -u)" -eq 0 ]; then
-	SERVICE_FILE=/etc/systemd/system/$PROJECT_NAME.service
+	SERVICE_DIR=/etc/systemd/system
 	SYSTEMCTL="systemctl"
 else
-	SERVICE_FILE="$HOME/.config/systemd/user/$PROJECT_NAME.service"
+	SERVICE_DIR="$HOME/.config/systemd/user"
 	SYSTEMCTL="systemctl --user"
 fi
+SERVICE_FILE="$SERVICE_DIR/$PROJECT_NAME.service"
+CRON_SERVICE_FILE="$SERVICE_DIR/$CRON_NAME.service"
 
 if [ "$UNINSTALL" -eq 1 ]; then
 	echo "==> Uninstalling $PROJECT_NAME"
-	if [ -f "$SERVICE_FILE" ]; then
-		$SYSTEMCTL disable --now "$PROJECT_NAME.service" 2>/dev/null || true
-		rm -f "$SERVICE_FILE"
-		$SYSTEMCTL daemon-reload 2>/dev/null || true
-	fi
+	RELOAD=0
+	for unit in "$CRON_NAME" "$PROJECT_NAME"; do
+		if [ -f "$SERVICE_DIR/$unit.service" ]; then
+			$SYSTEMCTL disable --now "$unit.service" 2>/dev/null || true
+			rm -f "$SERVICE_DIR/$unit.service"
+			RELOAD=1
+		fi
+	done
+	[ "$RELOAD" -eq 1 ] && $SYSTEMCTL daemon-reload 2>/dev/null || true
 	rm -rf "$LIB_DIR"
-	rm -f "$BIN_LINK"
+	rm -f "$BIN_LINK" "$CRON_BIN_LINK"
 	echo "==> Removed. Your data in ~/.archivus was left untouched."
 	exit 0
 fi
@@ -106,11 +115,13 @@ home | biz) ;;
 	;;
 esac
 
-if [ ! -x "$SRC_DIR/$PROJECT_NAME" ]; then
-	echo "error: $SRC_DIR/$PROJECT_NAME not found or not executable." >&2
-	echo "Run this script from an unpacked release tarball." >&2
-	exit 1
-fi
+for bin in "$PROJECT_NAME" "$CRON_NAME"; do
+	if [ ! -x "$SRC_DIR/$bin" ]; then
+		echo "error: $SRC_DIR/$bin not found or not executable." >&2
+		echo "Run this script from an unpacked release tarball." >&2
+		exit 1
+	fi
+done
 
 if [ ! -f "$SRC_DIR/static/index.html" ]; then
 	echo "error: $SRC_DIR/static/index.html not found; the release looks incomplete." >&2
@@ -120,17 +131,19 @@ fi
 echo "==> Installing $PROJECT_NAME to $PREFIX"
 mkdir -p "$LIB_DIR" "$PREFIX/bin"
 install -m 0755 "$SRC_DIR/$PROJECT_NAME" "$LIB_DIR/$PROJECT_NAME"
+install -m 0755 "$SRC_DIR/$CRON_NAME" "$LIB_DIR/$CRON_NAME"
 rm -rf "$LIB_DIR/static"
 cp -r "$SRC_DIR/static" "$LIB_DIR/static"
 ln -sfn "$LIB_DIR/$PROJECT_NAME" "$BIN_LINK"
+ln -sfn "$LIB_DIR/$CRON_NAME" "$CRON_BIN_LINK"
 
 if [ "$SYSTEMD" -eq 1 ]; then
 	if ! command -v systemctl >/dev/null 2>&1; then
 		echo "error: --systemd given but systemctl is not available." >&2
 		exit 1
 	fi
-	echo "==> Installing systemd service ($MODE mode)"
-	mkdir -p "$(dirname "$SERVICE_FILE")"
+	echo "==> Installing systemd services ($MODE mode)"
+	mkdir -p "$SERVICE_DIR"
 	{
 		echo "[Unit]"
 		echo "Description=Archivus file archiver"
@@ -150,9 +163,34 @@ if [ "$SYSTEMD" -eq 1 ]; then
 			echo "WantedBy=default.target"
 		fi
 	} >"$SERVICE_FILE"
+
+	# The cron scheduler shares the store with the server, so start it after
+	# the server unit. It is not a hard dependency: it can run on its own.
+	{
+		echo "[Unit]"
+		echo "Description=Archivus background job scheduler"
+		echo "After=network.target $PROJECT_NAME.service"
+		echo
+		echo "[Service]"
+		echo "ExecStart=$LIB_DIR/$CRON_NAME -m $MODE"
+		echo "Restart=on-failure"
+		if [ "$(id -u)" -eq 0 ]; then
+			echo "User=$SUDO_USER"
+		fi
+		echo
+		echo "[Install]"
+		if [ "$(id -u)" -eq 0 ]; then
+			echo "WantedBy=multi-user.target"
+		else
+			echo "WantedBy=default.target"
+		fi
+	} >"$CRON_SERVICE_FILE"
+
 	$SYSTEMCTL daemon-reload
 	$SYSTEMCTL enable --now "$PROJECT_NAME.service"
-	echo "==> Service started: $SYSTEMCTL status $PROJECT_NAME"
+	$SYSTEMCTL enable --now "$CRON_NAME.service"
+	echo "==> Services started: $SYSTEMCTL status $PROJECT_NAME"
+	echo "                     $SYSTEMCTL status $CRON_NAME"
 fi
 
 echo
@@ -184,4 +222,7 @@ if [ "$SYSTEMD" -eq 0 ]; then
 	echo
 	echo "    Start it with:  $PROJECT_NAME server -m $MODE"
 	echo "    Then open:      http://localhost:8080"
+	echo
+	echo "    For thumbnails and other periodic jobs, also run:"
+	echo "                    $CRON_NAME -m $MODE"
 fi

@@ -2,6 +2,7 @@ VERSION      ?= 0.1.1-beta.1
 PROJECT_NAME := archivus
 BACKEND_DIR  := backend
 FRONTEND_DIR := archivus-svelte
+SYNC_DIR     := sync-client
 
 DIST_DIR := dist
 PKG_DIR  := $(DIST_DIR)/packages
@@ -23,11 +24,21 @@ STAGE_DIR := $(DIST_DIR)/$(PROJECT_NAME)-$(VERSION)-$(GOOS)-$(GOARCH)
 # working directory.
 LDFLAGS := -s -w -X archivus/internal/config.debugMode=false
 
-.PHONY: all build build-backend build-cron build-frontend package clean dev-backend dev-cron dev-frontend test
+.PHONY: all build build-backend build-cron build-frontend build-sync-client package clean dev-backend dev-cron dev-frontend test
 
 all: build
 
 build: build-backend build-cron build-frontend
+
+# The desktop sync client is a standalone module (pure Go, no CGO) meant to be
+# installed on client machines, not bundled with the server package. It is built
+# on demand rather than as part of the default `build`.
+build-sync-client:
+	@echo "==> Building sync client ($(PLATFORM))"
+	mkdir -p $(STAGE_DIR)
+	cd $(SYNC_DIR) && CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) \
+		go build -trimpath -ldflags "-s -w" \
+		-o ../$(STAGE_DIR)/$(PROJECT_NAME)-sync ./cmd/archivus-sync
 
 build-backend:
 	@echo "==> Building backend ($(PLATFORM))"
@@ -62,6 +73,7 @@ package: build
 
 test:
 	cd $(BACKEND_DIR) && go test ./...
+	cd $(SYNC_DIR) && go test ./...
 
 dev-backend:
 	cd $(BACKEND_DIR) && go run ./cmd/archivus server -m home

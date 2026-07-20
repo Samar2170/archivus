@@ -8,6 +8,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/akamensky/argparse"
 	"github.com/robfig/cron/v3"
@@ -35,11 +37,10 @@ func StartScheduler(ctx context.Context, s *store.Store) (*cron.Cron, error) {
 	}{
 		{
 			name: "generate-thumbnails",
-			spec: "0 */1 * * * *", // every 1 minute
+			spec: "0 */1 * * *", // every 1 hour
 			fn: func() {
 				log.Info().Msg("cron: generating pending thumbnails")
-				// TODO: call the thumbnail generation service, e.g.
-				// thumbnail.GeneratePending(s)
+				runThumbnailService(ctx, s)
 			},
 		},
 	}
@@ -65,26 +66,29 @@ func StartScheduler(ctx context.Context, s *store.Store) (*cron.Cron, error) {
 	return c, nil
 }
 
+func runThumbnailService(ctx context.Context, s *store.Store) {
+	var err error
+	var s3Manager *s3manager.S3Manager
+	if config.Config.S3Enabled {
+		s3Manager, err = s3manager.GetS3Manager(s,
+			config.S3Cfg.AccountID,
+			config.S3Cfg.AccessKey,
+			config.S3Cfg.SecretKey,
+			config.S3Cfg.BucketName,
+		)
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	thumbnailService := thumbnail.NewS3Service(s3Manager, config.Config.ThumbnailDir, s)
+	if err := thumbnailService.MakeThumbnails(context.Background()); err != nil {
+		log.Fatal().Err(err).Msg("failed to generate thumbnails")
+	}
+
+}
+
 func main() {
-	// ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	// defer stop()
-
-	// s3ConfigPaths, _ := config.DefaultS3Paths()
-	// if err := config.Init("home", s3ConfigPaths); err != nil {
-	// 	log.Fatal().Err(err).Msg("failed to init config")
-	// }
-
-	// s, err := store.GetStore(config.ProjectBaseDir)
-	// if err != nil {
-	// 	log.Fatal().Err(err).Msg("failed to init store")
-	// }
-
-	// if _, err := StartScheduler(ctx, s); err != nil {
-	// 	log.Fatal().Err(err).Msg("failed to start scheduler")
-	// }
-
-	// <-ctx.Done() // block until interrupted
-	// log.Info().Msg("celery: shutting down")
 	if config.DEBUG {
 		fmt.Println("Warning DEBUG mode is enabled, running in development mode")
 	}
@@ -118,21 +122,14 @@ func main() {
 		panic(err)
 	}
 
-	var s3Manager *s3manager.S3Manager
-	if config.Config.S3Enabled {
-		s3Manager, err = s3manager.GetS3Manager(s,
-			config.S3Cfg.AccountID,
-			config.S3Cfg.AccessKey,
-			config.S3Cfg.SecretKey,
-			config.S3Cfg.BucketName,
-		)
-		if err != nil {
-			panic(err)
-		}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if _, err := StartScheduler(ctx, s); err != nil {
+		log.Fatal().Err(err).Msg("failed to start scheduler")
 	}
 
-	thumbnailService := thumbnail.NewS3Service(s3Manager, config.Config.ThumbnailDir, s)
-	if err := thumbnailService.MakeThumbnails(context.Background()); err != nil {
-		log.Fatal().Err(err).Msg("failed to generate thumbnails")
-	}
+	<-ctx.Done() // block until interrupted
+	log.Info().Msg("celery: shutting down")
+
 }

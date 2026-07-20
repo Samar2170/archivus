@@ -1,4 +1,4 @@
-VERSION      ?= 0.1.0-beta.1
+VERSION      ?= 0.1.1-beta.1
 PROJECT_NAME := archivus
 BACKEND_DIR  := backend
 FRONTEND_DIR := archivus-svelte
@@ -23,11 +23,11 @@ STAGE_DIR := $(DIST_DIR)/$(PROJECT_NAME)-$(VERSION)-$(GOOS)-$(GOARCH)
 # working directory.
 LDFLAGS := -s -w -X archivus/internal/config.debugMode=false
 
-.PHONY: all build build-backend build-frontend package clean dev-backend dev-frontend test
+.PHONY: all build build-backend build-cron build-frontend package clean dev-backend dev-cron dev-frontend test
 
 all: build
 
-build: build-backend build-frontend
+build: build-backend build-cron build-frontend
 
 build-backend:
 	@echo "==> Building backend ($(PLATFORM))"
@@ -35,6 +35,15 @@ build-backend:
 	cd $(BACKEND_DIR) && CGO_ENABLED=1 GOOS=$(GOOS) GOARCH=$(GOARCH) \
 		go build -trimpath -ldflags "$(LDFLAGS)" \
 		-o ../$(STAGE_DIR)/$(PROJECT_NAME) ./cmd/archivus
+
+# Long-running companion process to the server: runs the periodic jobs
+# (thumbnail generation) on a cron schedule.
+build-cron:
+	@echo "==> Building cron scheduler ($(PLATFORM))"
+	mkdir -p $(STAGE_DIR)
+	cd $(BACKEND_DIR) && CGO_ENABLED=1 GOOS=$(GOOS) GOARCH=$(GOARCH) \
+		go build -trimpath -ldflags "$(LDFLAGS)" \
+		-o ../$(STAGE_DIR)/$(PROJECT_NAME)-cron ./cmd/celery
 
 build-frontend:
 	@echo "==> Building frontend"
@@ -56,6 +65,9 @@ test:
 
 dev-backend:
 	cd $(BACKEND_DIR) && go run ./cmd/archivus server -m home
+
+dev-cron:
+	cd $(BACKEND_DIR) && go run ./cmd/celery -m home
 
 dev-frontend:
 	cd $(FRONTEND_DIR) && npm run dev

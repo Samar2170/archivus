@@ -100,11 +100,21 @@ systemctl --user enable --now archivus-sync.timer
 archivus-sync daemon -interval 15m
 ```
 
-## Known limitation
+## Conflict handling (server-side)
 
-The server's upload endpoint (`UploadFileV2`) always *inserts* a new
-`FileMetadata` row. When this client re-uploads a changed file the stored object
-is overwritten, but the server currently leaves a duplicate metadata row rather
-than updating the existing one. Making the server upsert by `(driveId, pathKey)`
-is a backend change tracked separately; this client already avoids re-uploading
-unchanged files, so the duplication only occurs when content genuinely changes.
+When the client re-uploads a file that already exists at the same drive path, the
+server decides what to do based on its run mode:
+
+- **home mode** (single user, disk backend): the file is **overwritten in place**
+  and its existing metadata row is updated — no duplicate rows.
+- **biz mode** (multi-contributor, S3 backend): the previous copy is **kept as a
+  version**. The current bytes and metadata are archived under a timestamped key
+  (e.g. `report.v<timestamp>.pdf`) before the new content is written to the
+  canonical key, so the canonical path is always the latest and no prior copy is
+  lost.
+
+The client's change detection means only genuinely-changed files are uploaded, so
+biz mode does not accumulate redundant versions on unchanged syncs.
+
+
+##### 

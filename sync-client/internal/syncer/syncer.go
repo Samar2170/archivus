@@ -19,7 +19,7 @@ import (
 
 // maxUploadSize mirrors the backend's per-file limit (archivus_constants.MaxUploadSize).
 // Larger files are skipped with a warning rather than failing the whole run.
-const maxUploadSize = 100 << 20 // 100 MB
+const maxUploadSize = 2 << 30 // 2 GB
 
 // Syncer coordinates change detection and uploads against a single backend.
 type Syncer struct {

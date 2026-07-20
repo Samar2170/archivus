@@ -4,6 +4,7 @@ import (
 	"archivus/internal/config"
 	"archivus/internal/models"
 	storage_types "archivus/internal/services/storagemanager/types"
+	"archivus/internal/store"
 	"context"
 	"errors"
 	"fmt"
@@ -112,6 +113,11 @@ func (s *S3Manager) DownloadFile(fileId string, driveId, userId string) (*os.Fil
 	return tmp, &md, nil
 }
 
+// UploadFileV2 stores a file in a drive. Biz mode keeps every version: if a file
+// already exists at the same key, its current bytes and metadata are first
+// archived under a timestamped key, then the new content is written to the
+// canonical key (so the canonical key is always the latest). This suits
+// multi-contributor setups that must never lose a previous copy.
 func (s *S3Manager) UploadFileV2(relPath, driveId, userId string, file multipart.File, fileHeader *multipart.FileHeader) error {
 	hasAccess, err := s.CheckUserDriveWriteAccess(userId, driveId)
 	if err != nil {
@@ -133,16 +139,54 @@ func (s *S3Manager) UploadFileV2(relPath, driveId, userId string, file multipart
 	}
 	prefix := filepath.Dir(pathKey) + "/"
 	contentType := fileHeader.Header.Get("Content-Type")
-	if err := s.Client.PutObject(context.Background(), s.Client.BucketName, pathKey, contentType, fileHeader.Size, file); err != nil {
+	sizeInMb := float64(fileHeader.Size) / (1 << 20)
+	ctx := context.Background()
+
+	existing, lookupErr := s.Store.GetFileMetadataByDrivePathKey(driveId, pathKey)
+	if lookupErr != nil && !errors.Is(lookupErr, store.ErrRecordNotFound) {
+		return fmt.Errorf("s3manager: lookup existing file %q: %w", pathKey, lookupErr)
+	}
+
+	if lookupErr == nil {
+		// Archive the current version (object + metadata) before overwriting.
+		archiveKey := versionedKey(pathKey)
+		if err := s.Client.CopyObject(ctx, s.Client.BucketName, pathKey, archiveKey); err != nil {
+			return fmt.Errorf("s3manager: archive previous version of %q: %w", pathKey, err)
+		}
+		archiveName := filepath.Base(archiveKey)
+		_, err = s.Store.CreateFileMetadataV2(archiveName, archiveKey, prefix, existing.ContentType, driveId, existing.UploadedByID.String(), existing.SizeInMb)
+		if err != nil {
+			_ = s.Client.DeleteObject(ctx, s.Client.BucketName, archiveKey)
+			return fmt.Errorf("s3manager: save archived version metadata for %q: %w", archiveKey, err)
+		}
+		if err := s.Client.PutObject(ctx, s.Client.BucketName, pathKey, contentType, fileHeader.Size, file); err != nil {
+			return fmt.Errorf("s3manager: upload %q: %w", pathKey, err)
+		}
+		if err := s.Store.UpdateFileMetadataContent(existing.ID.String(), sizeInMb, contentType); err != nil {
+			return fmt.Errorf("s3manager: update current version metadata for %q: %w", pathKey, err)
+		}
+		return nil
+	}
+
+	// First upload of this key.
+	if err := s.Client.PutObject(ctx, s.Client.BucketName, pathKey, contentType, fileHeader.Size, file); err != nil {
 		return fmt.Errorf("s3manager: upload %q: %w", pathKey, err)
 	}
-	sizeInMb := float64(fileHeader.Size) / (1 << 20)
 	_, err = s.Store.CreateFileMetadataV2(fileHeader.Filename, pathKey, prefix, contentType, driveId, userId, sizeInMb)
 	if err != nil {
-		_ = s.Client.DeleteObject(context.Background(), s.Client.BucketName, pathKey)
+		_ = s.Client.DeleteObject(ctx, s.Client.BucketName, pathKey)
 		return fmt.Errorf("s3manager: save file metadata for %q: %w", pathKey, err)
 	}
 	return nil
+}
+
+// versionedKey derives an archival key for the current contents of key by
+// inserting a nanosecond timestamp before the extension, e.g.
+// "drive/dir/report.pdf" -> "drive/dir/report.v1721512345678901234.pdf".
+func versionedKey(key string) string {
+	ext := filepath.Ext(key)
+	base := strings.TrimSuffix(key, ext)
+	return fmt.Sprintf("%s.v%d%s", base, time.Now().UnixNano(), ext)
 }
 
 func (s *S3Manager) GetFilesV2(relPath, driveId, userId string) ([]storage_types.DirEntry, error) {

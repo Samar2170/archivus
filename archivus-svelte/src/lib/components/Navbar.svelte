@@ -2,11 +2,14 @@
 	import { goto } from "$app/navigation";
 	import { page } from "$app/stores";
 	import { authStore } from "$lib/stores/auth";
-	import { Menu, X, Home, LogOut } from "lucide-svelte";
+	import { Menu, X, Home, LogOut, Trash2 } from "lucide-svelte";
 
 	let mobileOpen = false;
 
-	const navItems = [{ label: "Home", href: "/", icon: Home }];
+	const navItems = [
+		{ label: "Home", href: "/", icon: Home },
+		{ label: "Recycle Bin", href: "/recyclebin", icon: Trash2 },
+	];
 
 	function signout() {
 		authStore.signout();

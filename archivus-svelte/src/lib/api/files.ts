@@ -74,6 +74,36 @@ export async function deleteFile(fileId: string, driveId: string): Promise<void>
 	});
 }
 
+export interface RecycleEntry {
+	ID: string;
+	Name: string;
+	Size: number;
+	ContentType: string;
+	OriginalPath: string;
+	DeletedAt: string; // RFC3339
+	ExpiresAt: string; // RFC3339
+}
+
+interface RecycleBinResponse {
+	items: RecycleEntry[];
+}
+
+// getRecycleBin lists a drive's deleted files awaiting permanent purge.
+export async function getRecycleBin(driveId: string): Promise<RecycleBinResponse> {
+	return apiFetch<RecycleBinResponse>(paths.recycleBin, {
+		method: 'POST',
+		body: JSON.stringify({ driveId })
+	});
+}
+
+// restoreFile moves a recycle bin item back to its original location.
+export async function restoreFile(recycleBinId: string, driveId: string): Promise<void> {
+	await apiFetch(paths.recycleBinRestore, {
+		method: 'POST',
+		body: JSON.stringify({ recycleBinId, driveId })
+	});
+}
+
 export async function downloadFile(fileId: string, driveId: string): Promise<Blob> {
 	const token = authStore.getToken();
 	const res = await fetch(downloadFileUrl(fileId, driveId), {

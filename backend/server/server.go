@@ -42,8 +42,12 @@ func GetServer(authService *auth.AuthService) *http.Server {
 
 	protected.HandleFunc("/storage/file/upload", storageHandler.UploadFileHandler).Methods(http.MethodPost)
 	protected.HandleFunc("/storage/file/download", storageHandler.DownloadFileHandler).Methods(http.MethodGet)
-	// protected.HandleFunc("/storage/file/move", storageHandler.MoveFileHandler).Methods(http.MethodPost)
+	protected.HandleFunc("/storage/file/move", storageHandler.MoveFileHandler).Methods(http.MethodPost)
+	protected.HandleFunc("/storage/file/delete", storageHandler.DeleteFileHandler).Methods(http.MethodPost)
 	protected.HandleFunc("/storage/files", storageHandler.GetFilesHandler).Methods(http.MethodPost)
+
+	protected.HandleFunc("/storage/recyclebin", storageHandler.GetRecycleBinHandler).Methods(http.MethodPost)
+	protected.HandleFunc("/storage/recyclebin/restore", storageHandler.RestoreFileHandler).Methods(http.MethodPost)
 
 	// Serve generated thumbnail images as static files. Thumbnails are loaded via
 	// <img> tags which cannot send Authorization headers, so this route is public;

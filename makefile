@@ -1,4 +1,4 @@
-VERSION      ?= 0.1.1-beta.1
+VERSION      ?= 0.1.3-beta.1
 PROJECT_NAME := archivus
 BACKEND_DIR  := backend
 FRONTEND_DIR := archivus-svelte

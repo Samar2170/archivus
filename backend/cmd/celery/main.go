@@ -2,6 +2,8 @@ package main
 
 import (
 	"archivus/internal/config"
+	"archivus/internal/services/storagemanager"
+	"archivus/internal/services/storagemanager/diskmanager"
 	"archivus/internal/services/storagemanager/s3manager"
 	"archivus/internal/services/thumbnail"
 	"archivus/internal/store"
@@ -41,6 +43,14 @@ func StartScheduler(ctx context.Context, s *store.Store) (*cron.Cron, error) {
 			fn: func() {
 				log.Info().Msg("cron: generating pending thumbnails")
 				runThumbnailService(ctx, s)
+			},
+		},
+		{
+			name: "purge-recycle-bin",
+			spec: "0 0 3 * * *", // daily at 03:00
+			fn: func() {
+				log.Info().Msg("cron: purging expired recycle bin items")
+				runPurgeRecycleBin(ctx, s)
 			},
 		},
 	}
@@ -86,6 +96,31 @@ func runThumbnailService(ctx context.Context, s *store.Store) {
 		log.Fatal().Err(err).Msg("failed to generate thumbnails")
 	}
 
+}
+
+// buildStorageManager constructs the storage manager matching the configured
+// backend (S3 in biz mode, local disk otherwise), mirroring cmd/archivus.
+func buildStorageManager(s *store.Store) (storagemanager.StorageManager, error) {
+	if config.Config.S3Enabled {
+		return s3manager.GetS3Manager(s,
+			config.S3Cfg.AccountID,
+			config.S3Cfg.AccessKey,
+			config.S3Cfg.SecretKey,
+			config.S3Cfg.BucketName,
+		)
+	}
+	return diskmanager.GetDiskManager(s, config.Config.ArchivusHome), nil
+}
+
+func runPurgeRecycleBin(ctx context.Context, s *store.Store) {
+	sm, err := buildStorageManager(s)
+	if err != nil {
+		log.Error().Err(err).Msg("cron: failed to build storage manager for recycle bin purge")
+		return
+	}
+	if err := sm.PurgeExpiredRecycleBin(ctx); err != nil {
+		log.Error().Err(err).Msg("cron: failed to purge expired recycle bin items")
+	}
 }
 
 func main() {

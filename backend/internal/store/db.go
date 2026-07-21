@@ -24,7 +24,7 @@ func GetStore(projectBaseDir string) (*Store, error) {
 	if err := s.Init(); err != nil {
 		return nil, err
 	}
-	if err := s.Migrate(models.User{}, models.Drive{}, models.UserInvite{}, models.DirectoryMetadata{}, models.FileMetadata{}); err != nil {
+	if err := s.Migrate(models.User{}, models.Drive{}, models.UserInvite{}, models.DirectoryMetadata{}, models.FileMetadata{}, models.RecycleBinItem{}); err != nil {
 		return nil, err
 	}
 	// Drop columns removed from models that AutoMigrate leaves behind.

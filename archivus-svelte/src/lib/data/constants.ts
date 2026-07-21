@@ -12,5 +12,9 @@ export const paths = {
 	folderCreate: '/storage/folder/create',
 	folderDelete: '/storage/folder/delete',
 	fileUpload: '/storage/file/upload',
-	fileDownload: '/storage/file/download'
+	fileDownload: '/storage/file/download',
+	fileMove: '/storage/file/move',
+	fileDelete: '/storage/file/delete',
+	recycleBin: '/storage/recyclebin',
+	recycleBinRestore: '/storage/recyclebin/restore'
 } as const;

@@ -4,7 +4,19 @@ import (
 	archivus_constants "archivus/internal/constants"
 	"path/filepath"
 	"strings"
+	"time"
 )
+
+// RecycleEntry is a single file held in the recycle bin, as shown to the user.
+type RecycleEntry struct {
+	ID           string
+	Name         string
+	Size         float64
+	ContentType  string
+	OriginalPath string
+	DeletedAt    time.Time
+	ExpiresAt    time.Time
+}
 
 type DirEntry struct {
 	ID        string

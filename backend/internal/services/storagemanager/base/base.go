@@ -2,7 +2,9 @@ package base
 
 import (
 	"archivus/internal/models"
+	storage_types "archivus/internal/services/storagemanager/types"
 	"archivus/internal/store"
+	"errors"
 	"fmt"
 )
 
@@ -45,4 +47,34 @@ func (b *BaseManager) CheckUserHasDriveAccess(userID, driveID string) (bool, err
 		return false, fmt.Errorf("storagemanager: check if user in drive: %w", err)
 	}
 	return inDrive, nil
+}
+
+// ListRecycleBin returns a drive's recycle bin contents. It is storage-backend
+// independent (metadata lives in the DB), so both disk and S3 managers inherit
+// it from the base.
+func (b *BaseManager) ListRecycleBin(driveId, userId string) ([]storage_types.RecycleEntry, error) {
+	hasAccess, err := b.CheckUserHasDriveAccess(userId, driveId)
+	if err != nil {
+		return nil, err
+	}
+	if !hasAccess {
+		return nil, errors.New("user does not have access to this drive")
+	}
+	items, err := b.Store.ListRecycleBinItemsByDrive(driveId)
+	if err != nil {
+		return nil, fmt.Errorf("storagemanager: list recycle bin for drive %q: %w", driveId, err)
+	}
+	entries := make([]storage_types.RecycleEntry, 0, len(items))
+	for _, it := range items {
+		entries = append(entries, storage_types.RecycleEntry{
+			ID:           it.ID.String(),
+			Name:         it.Name,
+			Size:         it.SizeInMb,
+			ContentType:  it.ContentType,
+			OriginalPath: it.OriginalPathKey,
+			DeletedAt:    it.CreatedAt,
+			ExpiresAt:    it.ExpiresAt,
+		})
+	}
+	return entries, nil
 }

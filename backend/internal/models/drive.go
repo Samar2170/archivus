@@ -1,6 +1,8 @@
 package models
 
 import (
+	"time"
+
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -85,5 +87,43 @@ type FileMetadata struct {
 
 func (f *FileMetadata) BeforeCreate(tx *gorm.DB) (err error) {
 	f.ID = uuid.New()
+	return
+}
+
+// RecycleBinItem records a file that was deleted but not yet permanently
+// removed. It holds enough of the original file's metadata to restore it to its
+// former location, and a pointer (RecyclePathKey) to where the bytes now live
+// inside the recycle bin. The purge job deletes items whose ExpiresAt is in the
+// past.
+type RecycleBinItem struct {
+	*gorm.Model
+	ID   uuid.UUID `gorm:"type:uuid;primaryKey"`
+	Name string    `gorm:"not null;index"`
+
+	// Original location, used to restore the file.
+	OriginalPathKey string `gorm:"index"` // object key (S3) or absolute path (disk)
+	OriginalPrefix  string `gorm:"index"` // parent directory key/path
+
+	// RecyclePathKey is where the bytes currently live inside the recycle bin.
+	RecyclePathKey string `gorm:"not null"`
+
+	Drive   Drive     `gorm:"foreignKey:DriveID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
+	DriveID uuid.UUID `gorm:"type:uuid;not null"`
+
+	DeletedBy   User      `gorm:"foreignKey:DeletedByID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
+	DeletedByID uuid.UUID `gorm:"type:uuid"`
+
+	SizeInMb      float64 `gorm:"not null"`
+	ContentType   string  `gorm:"not null;default:''"`
+	ThumbnailPath string  `gorm:"not null;default:''"` // preserved so purge can clean it up
+
+	// ExpiresAt is when the item becomes eligible for permanent deletion.
+	ExpiresAt time.Time `gorm:"index"`
+}
+
+func (r *RecycleBinItem) BeforeCreate(tx *gorm.DB) (err error) {
+	if r.ID == uuid.Nil {
+		r.ID = uuid.New()
+	}
 	return
 }

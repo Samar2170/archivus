@@ -11,6 +11,13 @@ const (
 	ConfigFileName = "config.yaml"
 
 	ThumbnailDirName = ".thumbnails"
+
+	// RecycleBinDirName is the directory (disk) / key prefix (S3) under the
+	// storage root where deleted files are held before permanent removal.
+	RecycleBinDirName = ".recyclebin"
+	// RecycleBinRetentionDays is how long a deleted file stays in the recycle
+	// bin before the purge job removes it permanently.
+	RecycleBinRetentionDays = 30
 	// ThumbnailRoutePrefix is the URL path prefix under which thumbnail images
 	// are served by the static file server. Must end with a trailing slash.
 	ThumbnailRoutePrefix = "/storage/thumbnails/"

@@ -52,6 +52,58 @@ export function downloadFileUrl(fileId: string, driveId: string): string {
 	return `${baseUrl}${paths.fileDownload}?${params.toString()}`;
 }
 
+// moveFile relocates a file into dstPath (a folder relative to the drive root;
+// empty string means the drive root), keeping its name.
+export async function moveFile(
+	fileId: string,
+	dstPath: string,
+	driveId: string
+): Promise<void> {
+	await apiFetch(paths.fileMove, {
+		method: 'POST',
+		body: JSON.stringify({ fileId, dstPath, driveId })
+	});
+}
+
+// deleteFile moves a file into the recycle bin, where it is kept for 30 days
+// before being permanently purged.
+export async function deleteFile(fileId: string, driveId: string): Promise<void> {
+	await apiFetch(paths.fileDelete, {
+		method: 'POST',
+		body: JSON.stringify({ fileId, driveId })
+	});
+}
+
+export interface RecycleEntry {
+	ID: string;
+	Name: string;
+	Size: number;
+	ContentType: string;
+	OriginalPath: string;
+	DeletedAt: string; // RFC3339
+	ExpiresAt: string; // RFC3339
+}
+
+interface RecycleBinResponse {
+	items: RecycleEntry[];
+}
+
+// getRecycleBin lists a drive's deleted files awaiting permanent purge.
+export async function getRecycleBin(driveId: string): Promise<RecycleBinResponse> {
+	return apiFetch<RecycleBinResponse>(paths.recycleBin, {
+		method: 'POST',
+		body: JSON.stringify({ driveId })
+	});
+}
+
+// restoreFile moves a recycle bin item back to its original location.
+export async function restoreFile(recycleBinId: string, driveId: string): Promise<void> {
+	await apiFetch(paths.recycleBinRestore, {
+		method: 'POST',
+		body: JSON.stringify({ recycleBinId, driveId })
+	});
+}
+
 export async function downloadFile(fileId: string, driveId: string): Promise<Blob> {
 	const token = authStore.getToken();
 	const res = await fetch(downloadFileUrl(fileId, driveId), {

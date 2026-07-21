@@ -3,16 +3,29 @@
 	import { goto } from "$app/navigation";
 	import { page } from "$app/stores";
 	import { authStore } from "$lib/stores/auth";
-	import { getFiles } from "$lib/api/files";
+	import { getFiles, deleteFile, downloadFile } from "$lib/api/files";
 	import type { FileMetaData } from "$lib/api/files";
 	import Navbar from "$lib/components/Navbar.svelte";
 	import FileCard from "$lib/components/FileCard.svelte";
 	import Breadcrumbs from "$lib/components/Breadcrumbs.svelte";
 	import FileFolderModal from "$lib/components/FileFolderModal.svelte";
+	import FileContextMenu from "$lib/components/FileContextMenu.svelte";
+	import MoveFileModal from "$lib/components/MoveFileModal.svelte";
 
 	let files: FileMetaData[] = [];
 	let loading = false;
 	let error = "";
+
+	// Context menu (opened by right-click, or a long-press on touch devices).
+	let menu: { file: FileMetaData; x: number; y: number } | null = null;
+	// The file currently being moved / awaiting delete confirmation.
+	let movingFile: FileMetaData | null = null;
+	let deletingFile: FileMetaData | null = null;
+	let deleteBusy = false;
+	// Set when a long-press opens the menu, so the tap that follows on touch
+	// devices doesn't also open the item.
+	let suppressNextClick = false;
+	let longPressTimer: ReturnType<typeof setTimeout> | null = null;
 
 	$: currentFolder = $page.url.searchParams.get("folder") ?? "";
 
@@ -48,12 +61,73 @@
 	}
 
 	function openItem(file: FileMetaData) {
+		if (suppressNextClick) {
+			suppressNextClick = false;
+			return;
+		}
 		if (file.IsDir) {
 			goto(
 				`/?folder=${encodeURIComponent(file.NavigationPath || file.Path)}`,
 			);
 		} else if (file.SignedUrl) {
 			window.open(file.SignedUrl, "_blank");
+		}
+	}
+
+	// --- Context menu (right-click / long-press) ---
+
+	function openMenu(e: MouseEvent, file: FileMetaData) {
+		menu = { file, x: e.clientX, y: e.clientY };
+	}
+
+	function onPointerDown(e: PointerEvent, file: FileMetaData) {
+		// Right-click is handled by `contextmenu`; here we add a long-press for
+		// touch devices, which have no right mouse button.
+		if (e.pointerType !== "touch") return;
+		clearLongPress();
+		longPressTimer = setTimeout(() => {
+			suppressNextClick = true;
+			menu = { file, x: e.clientX, y: e.clientY };
+		}, 500);
+	}
+
+	function clearLongPress() {
+		if (longPressTimer) {
+			clearTimeout(longPressTimer);
+			longPressTimer = null;
+		}
+	}
+
+	async function handleMenuDownload(file: FileMetaData) {
+		menu = null;
+		const driveId = $authStore.driveId;
+		if (!driveId) return;
+		try {
+			const blob = await downloadFile(file.ID, driveId);
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement("a");
+			a.href = url;
+			a.download = file.Name;
+			a.click();
+			URL.revokeObjectURL(url);
+		} catch (err) {
+			alert("Download failed: " + (err as Error).message);
+		}
+	}
+
+	async function confirmDelete() {
+		if (!deletingFile) return;
+		const driveId = $authStore.driveId;
+		if (!driveId) return;
+		deleteBusy = true;
+		try {
+			await deleteFile(deletingFile.ID, driveId);
+			deletingFile = null;
+			await loadFiles();
+		} catch (err) {
+			alert("Delete failed: " + (err as Error).message);
+		} finally {
+			deleteBusy = false;
 		}
 	}
 </script>
@@ -100,6 +174,11 @@
 					<div
 						on:click={() => openItem(file)}
 						on:keydown={(e) => e.key === "Enter" && openItem(file)}
+						on:contextmenu|preventDefault={(e) => openMenu(e, file)}
+						on:pointerdown={(e) => onPointerDown(e, file)}
+						on:pointerup={clearLongPress}
+						on:pointermove={clearLongPress}
+						on:pointerleave={clearLongPress}
 						class="outline-none"
 					>
 						<FileCard {file} />
@@ -110,4 +189,74 @@
 	</main>
 
 	<FileFolderModal {currentFolder} on:refresh={loadFiles} />
+
+	<!-- Right-click / long-press context menu -->
+	{#if menu}
+		<FileContextMenu
+			file={menu.file}
+			x={menu.x}
+			y={menu.y}
+			on:close={() => (menu = null)}
+			on:open={(e) => {
+				menu = null;
+				openItem(e.detail);
+			}}
+			on:download={(e) => handleMenuDownload(e.detail)}
+			on:move={(e) => {
+				movingFile = e.detail;
+				menu = null;
+			}}
+			on:delete={(e) => {
+				deletingFile = e.detail;
+				menu = null;
+			}}
+		/>
+	{/if}
+
+	<!-- Move destination picker -->
+	{#if movingFile}
+		<MoveFileModal
+			file={movingFile}
+			on:close={() => (movingFile = null)}
+			on:moved={() => {
+				movingFile = null;
+				loadFiles();
+			}}
+		/>
+	{/if}
+
+	<!-- Delete confirmation -->
+	{#if deletingFile}
+		<div
+			class="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm"
+		>
+			<div class="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+				<h2 class="mb-2 text-lg font-semibold text-gray-900">
+					Delete file
+				</h2>
+				<p class="mb-5 text-sm text-gray-600">
+					Move <span class="font-medium text-gray-800"
+						>{deletingFile.Name}</span
+					> to the recycle bin? It will be kept for 30 days before being permanently
+					removed.
+				</p>
+				<div class="flex justify-end gap-2">
+					<button
+						on:click={() => (deletingFile = null)}
+						disabled={deleteBusy}
+						class="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+					>
+						Cancel
+					</button>
+					<button
+						on:click={confirmDelete}
+						disabled={deleteBusy}
+						class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+					>
+						{deleteBusy ? "Deleting…" : "Delete"}
+					</button>
+				</div>
+			</div>
+		</div>
+	{/if}
 </div>

@@ -99,28 +99,98 @@ func (h *StorageHandler) UploadFileHandler(w http.ResponseWriter, r *http.Reques
 	response.JSONResponse(w, map[string]string{"message": "files uploaded successfully"})
 }
 
-// func (h *StorageHandler) MoveFileHandler(w http.ResponseWriter, r *http.Request) {
-// 	type moveFileRequest struct {
-// 		SrcPath string `json:"srcPath"`
-// 		DstPath string `json:"dstPath"`
-// 		DriveId string `json:"driveId"`
-// 	}
-// 	var req moveFileRequest
-// 	if err := reqhelpers.DecodeRequest(r, &req); err != nil {
-// 		response.BadRequestResponse(w, err.Error())
-// 		return
-// 	}
-// 	userID, ok := r.Context().Value(archivus_constants.ContextKey(archivus_constants.UserIdKey)).(string)
-// 	if !ok {
-// 		response.UnauthorizedResponse(w, "user ID not found in context")
-// 		return
-// 	}
-// 	if err := h.service.MoveFile(req.SrcPath, req.DstPath, req.DriveId, userID); err != nil {
-// 		response.BadRequestResponse(w, err.Error())
-// 		return
-// 	}
-// 	response.JSONResponse(w, map[string]string{"message": "file moved successfully"})
-// }
+func (h *StorageHandler) MoveFileHandler(w http.ResponseWriter, r *http.Request) {
+	type moveFileRequest struct {
+		FileId  string `json:"fileId"`
+		DstPath string `json:"dstPath"` // destination folder, relative to the drive root
+		DriveId string `json:"driveId"`
+	}
+	var req moveFileRequest
+	if err := reqhelpers.DecodeRequest(r, &req); err != nil {
+		response.BadRequestResponse(w, err.Error())
+		return
+	}
+	userID, ok := r.Context().Value(archivus_constants.ContextKey(archivus_constants.UserIdKey)).(string)
+	if !ok {
+		response.UnauthorizedResponse(w, "user ID not found in context")
+		return
+	}
+	if err := h.service.MoveFile(req.FileId, req.DstPath, req.DriveId, userID); err != nil {
+		response.BadRequestResponse(w, err.Error())
+		return
+	}
+	response.JSONResponse(w, map[string]string{"message": "file moved successfully"})
+}
+
+// DeleteFileHandler moves a file into the recycle bin, where it stays for the
+// retention window before being permanently purged.
+func (h *StorageHandler) DeleteFileHandler(w http.ResponseWriter, r *http.Request) {
+	type deleteFileRequest struct {
+		FileId  string `json:"fileId"`
+		DriveId string `json:"driveId"`
+	}
+	var req deleteFileRequest
+	if err := reqhelpers.DecodeRequest(r, &req); err != nil {
+		response.BadRequestResponse(w, err.Error())
+		return
+	}
+	userID, ok := r.Context().Value(archivus_constants.ContextKey(archivus_constants.UserIdKey)).(string)
+	if !ok {
+		response.UnauthorizedResponse(w, "user ID not found in context")
+		return
+	}
+	if err := h.service.DeleteFileV2(req.FileId, req.DriveId, userID); err != nil {
+		response.BadRequestResponse(w, err.Error())
+		return
+	}
+	response.JSONResponse(w, map[string]string{"message": "file moved to recycle bin"})
+}
+
+// GetRecycleBinHandler lists a drive's deleted files awaiting purge.
+func (h *StorageHandler) GetRecycleBinHandler(w http.ResponseWriter, r *http.Request) {
+	type recycleBinRequest struct {
+		DriveId string `json:"driveId"`
+	}
+	var req recycleBinRequest
+	if err := reqhelpers.DecodeRequest(r, &req); err != nil {
+		response.BadRequestResponse(w, err.Error())
+		return
+	}
+	userID, ok := r.Context().Value(archivus_constants.ContextKey(archivus_constants.UserIdKey)).(string)
+	if !ok {
+		response.UnauthorizedResponse(w, "user ID not found in context")
+		return
+	}
+	items, err := h.service.ListRecycleBin(req.DriveId, userID)
+	if err != nil {
+		response.BadRequestResponse(w, err.Error())
+		return
+	}
+	response.JSONResponse(w, map[string]interface{}{"items": items})
+}
+
+// RestoreFileHandler moves a recycle bin item back to its original location.
+func (h *StorageHandler) RestoreFileHandler(w http.ResponseWriter, r *http.Request) {
+	type restoreFileRequest struct {
+		RecycleBinId string `json:"recycleBinId"`
+		DriveId      string `json:"driveId"`
+	}
+	var req restoreFileRequest
+	if err := reqhelpers.DecodeRequest(r, &req); err != nil {
+		response.BadRequestResponse(w, err.Error())
+		return
+	}
+	userID, ok := r.Context().Value(archivus_constants.ContextKey(archivus_constants.UserIdKey)).(string)
+	if !ok {
+		response.UnauthorizedResponse(w, "user ID not found in context")
+		return
+	}
+	if err := h.service.RestoreFile(req.RecycleBinId, req.DriveId, userID); err != nil {
+		response.BadRequestResponse(w, err.Error())
+		return
+	}
+	response.JSONResponse(w, map[string]string{"message": "file restored"})
+}
 
 func (h *StorageHandler) DownloadFileHandler(w http.ResponseWriter, r *http.Request) {
 	fileId := r.URL.Query().Get("fileId")

@@ -66,6 +66,23 @@ func (s *Store) DeleteFileMetadataByRelPath(relPath string) error {
 	return result.Error
 }
 
+// DeleteFileMetadataByID permanently removes a file metadata row. Used when a
+// file is moved into the recycle bin (the RecycleBinItem row then owns it).
+func (s *Store) DeleteFileMetadataByID(id string) error {
+	result := s.conn().Unscoped().Where("id = ?", id).Delete(&models.FileMetadata{})
+	return result.Error
+}
+
+// UpdateFileMetadataLocation moves a file row to a new key/prefix after its
+// bytes have been relocated on disk/S3.
+func (s *Store) UpdateFileMetadataLocation(id, pathKey, prefix string) error {
+	result := s.conn().Model(&models.FileMetadata{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"path_key": pathKey,
+		"prefix":   prefix,
+	})
+	return result.Error
+}
+
 func (s *Store) ListFilesByRelPath(dirAbsPath string) ([]models.FileMetadata, error) {
 	var files []models.FileMetadata
 	result := s.conn().Where("path_key LIKE ?", dirAbsPath+"/%").Find(&files)

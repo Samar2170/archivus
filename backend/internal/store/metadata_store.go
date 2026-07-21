@@ -132,6 +132,28 @@ func (s *Store) CreateDirectoryMetadataV2(name, pathKey, prefix, driveID string)
 	return dm, result.Error
 }
 
+// GetFileMetadataByDrivePathKey looks up a single file by its exact key within a
+// drive. Returns ErrRecordNotFound when no such file exists, which upload paths
+// use to distinguish a first upload from an overwrite/new-version.
+func (s *Store) GetFileMetadataByDrivePathKey(driveID, pathKey string) (models.FileMetadata, error) {
+	var fm models.FileMetadata
+	result := s.conn().Where("drive_id = ? AND path_key = ?", driveID, pathKey).First(&fm)
+	return fm, result.Error
+}
+
+// UpdateFileMetadataContent updates a file row in place after its bytes were
+// overwritten (home mode) or replaced by a newer version (biz mode). The
+// thumbnail path is cleared so the thumbnail job regenerates it from the new
+// content.
+func (s *Store) UpdateFileMetadataContent(id string, sizeInMb float64, contentType string) error {
+	result := s.conn().Model(&models.FileMetadata{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"size_in_mb":     sizeInMb,
+		"content_type":   contentType,
+		"thumbnail_path": "",
+	})
+	return result.Error
+}
+
 func (s *Store) GetFileMetadataByDirPrefix(driveID string, prefixes [2]string) ([]models.FileMetadata, error) {
 	var files []models.FileMetadata
 	result := s.conn().Where("drive_id = ? AND prefix IN ?", driveID, prefixes).Find(&files)

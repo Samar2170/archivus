@@ -4,6 +4,7 @@ import (
 	"archivus/internal/config"
 	"archivus/internal/models"
 	storage_types "archivus/internal/services/storagemanager/types"
+	"archivus/internal/store"
 	"errors"
 	"fmt"
 	"io"
@@ -97,7 +98,7 @@ func (dm *DiskManager) DownloadFile(fileId string, driveId, userId string) (*os.
 
 	md, err := dm.Store.GetFileMetadataByID(fileId)
 	if err != nil {
-		return nil, nil, fmt.Errorf("diskmanager: get file metadata by id %d: %w", fileId, err)
+		return nil, nil, fmt.Errorf("diskmanager: get file metadata by id %q: %w", fileId, err)
 	}
 
 	f, err := os.Open(md.PathKey)
@@ -107,6 +108,9 @@ func (dm *DiskManager) DownloadFile(fileId string, driveId, userId string) (*os.
 	return f, &md, nil
 }
 
+// UploadFileV2 stores a file in a drive. Home mode is single-version: if a file
+// already exists at the same key its bytes are overwritten and the existing
+// metadata row is updated in place (rather than inserting a duplicate row).
 func (dm *DiskManager) UploadFileV2(relPath, driveId, userId string, file multipart.File, fileHeader *multipart.FileHeader) error {
 	hasAccess, err := dm.CheckUserDriveWriteAccess(userId, driveId)
 	if err != nil {
@@ -121,7 +125,18 @@ func (dm *DiskManager) UploadFileV2(relPath, driveId, userId string, file multip
 	}
 	prefix := filepath.Join(dm.Home, drive.Slug, relPath)
 	pathKey := filepath.Join(prefix, fileHeader.Filename)
-	outFile, err := os.Create(pathKey)
+
+	// Determine whether this is a first upload or an overwrite before touching disk.
+	existing, lookupErr := dm.Store.GetFileMetadataByDrivePathKey(driveId, pathKey)
+	isOverwrite := lookupErr == nil
+	if lookupErr != nil && !errors.Is(lookupErr, store.ErrRecordNotFound) {
+		return fmt.Errorf("diskmanager: lookup existing file %q: %w", pathKey, lookupErr)
+	}
+
+	if err := os.MkdirAll(prefix, 0o755); err != nil {
+		return fmt.Errorf("diskmanager: create dir %q: %w", prefix, err)
+	}
+	outFile, err := os.Create(pathKey) // truncates on overwrite
 	if err != nil {
 		return fmt.Errorf("diskmanager: create file %q: %w", pathKey, err)
 	}
@@ -131,6 +146,13 @@ func (dm *DiskManager) UploadFileV2(relPath, driveId, userId string, file multip
 	}
 	contentType := fileHeader.Header.Get("Content-Type")
 	sizeInMb := float64(fileHeader.Size) / (1 << 20)
+
+	if isOverwrite {
+		if err := dm.Store.UpdateFileMetadataContent(existing.ID.String(), sizeInMb, contentType); err != nil {
+			return fmt.Errorf("diskmanager: update file metadata for %q: %w", pathKey, err)
+		}
+		return nil
+	}
 	_, err = dm.Store.CreateFileMetadataV2(fileHeader.Filename, pathKey, prefix, contentType, driveId, userId, sizeInMb)
 	if err != nil {
 		if cleanupErr := os.Remove(pathKey); cleanupErr != nil {

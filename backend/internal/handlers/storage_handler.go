@@ -64,7 +64,7 @@ func (h *StorageHandler) DeleteFolder(w http.ResponseWriter, r *http.Request) {
 
 func (h *StorageHandler) UploadFileHandler(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, archivus_constants.MaxUploadSize)
-	err := r.ParseMultipartForm(archivus_constants.MaxUploadSize)
+	err := r.ParseMultipartForm(archivus_constants.MaxMultipartMemory)
 	if err != nil {
 		response.BadRequestResponse(w, err.Error())
 		return

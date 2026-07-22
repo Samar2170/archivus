@@ -39,7 +39,7 @@ func StartScheduler(ctx context.Context, s *store.Store) (*cron.Cron, error) {
 	}{
 		{
 			name: "generate-thumbnails",
-			spec: "0 */1 * * *", // every 1 hour
+			spec: "0 */1 * * * *", // every 1 hour
 			fn: func() {
 				log.Info().Msg("cron: generating pending thumbnails")
 				runThumbnailService(ctx, s)

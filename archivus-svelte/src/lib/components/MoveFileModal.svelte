@@ -26,7 +26,9 @@
 		loading = true;
 		error = "";
 		try {
-			const result = await getFiles(browsePath, driveId);
+			// Directories sort before files, so a max-size page (500) is enough
+			// to list every folder for the destination picker.
+			const result = await getFiles(browsePath, driveId, 1, 500);
 			folders = (result.files ?? []).filter((f) => f.IsDir);
 		} catch (err) {
 			error = (err as Error).message;

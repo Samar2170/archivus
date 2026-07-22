@@ -189,17 +189,18 @@ func versionedKey(key string) string {
 	return fmt.Sprintf("%s.v%d%s", base, time.Now().UnixNano(), ext)
 }
 
-func (s *S3Manager) GetFilesV2(relPath, driveId, userId string) ([]storage_types.DirEntry, error) {
+func (s *S3Manager) GetFilesV2(relPath, driveId, userId string, page, pageSize int) (storage_types.PagedDirEntries, error) {
+	var out storage_types.PagedDirEntries
 	hasAccess, err := s.CheckUserHasDriveAccess(userId, driveId)
 	if err != nil {
-		return nil, err
+		return out, err
 	}
 	if !hasAccess {
-		return nil, errors.New("user does not have access to this drive")
+		return out, errors.New("user does not have access to this drive")
 	}
 	drive, err := s.Store.GetDriveByID(driveId)
 	if err != nil {
-		return nil, fmt.Errorf("s3manager: get drive %q: %w", driveId, err)
+		return out, fmt.Errorf("s3manager: get drive %q: %w", driveId, err)
 	}
 	trimmed := strings.Trim(relPath, "/")
 	var dirPrefixes [2]string
@@ -209,39 +210,60 @@ func (s *S3Manager) GetFilesV2(relPath, driveId, userId string) ([]storage_types
 		dirPrefixes = [2]string{drive.Slug + "/" + trimmed + "/", drive.Slug + "/" + trimmed}
 	}
 	ctx := context.Background()
-	files, err := s.Store.GetFileMetadataByDirPrefix(drive.ID.String(), dirPrefixes)
+
+	limit, offset := storage_types.PageBounds(page, pageSize)
+	dirCount, err := s.Store.CountDirectoriesByParentPrefix(drive.ID.String(), dirPrefixes)
 	if err != nil {
-		return nil, fmt.Errorf("s3manager: list files for prefix %q: %w", dirPrefixes, err)
+		return out, fmt.Errorf("s3manager: count dirs for prefix %q: %w", dirPrefixes, err)
 	}
-	dirs, err := s.Store.GetDirectoriesByParentPrefix(drive.ID.String(), dirPrefixes)
+	fileCount, err := s.Store.CountFileMetadataByDirPrefix(drive.ID.String(), dirPrefixes)
 	if err != nil {
-		return nil, fmt.Errorf("s3manager: list dirs for prefix %q: %w", dirPrefixes, err)
+		return out, fmt.Errorf("s3manager: count files for prefix %q: %w", dirPrefixes, err)
 	}
-	var entries []storage_types.DirEntry
-	for _, f := range files {
-		signedURL, _ := s.Client.PresignGetObject(ctx, s.Client.BucketName, f.PathKey, 15*time.Minute)
-		entries = append(entries, storage_types.DirEntry{
-			ID:             f.ID.String(),
-			Name:           f.Name,
-			IsDir:          false,
-			Extension:      filepath.Ext(f.Name),
-			SignedUrl:      signedURL,
-			Size:           f.SizeInMb,
-			Path:           f.PathKey,
-			Thumbnail:      storage_types.ThumbnailURL(f.ThumbnailPath, config.Config.ThumbnailDir),
-			NavigationPath: filepath.Join(relPath, f.Name),
-		})
+	window := storage_types.PageWindow(int(dirCount), limit, offset)
+
+	entries := make([]storage_types.DirEntry, 0, limit)
+	if window.DirLimit != 0 {
+		dirs, err := s.Store.GetDirectoriesByParentPrefixPaged(drive.ID.String(), dirPrefixes, window.DirLimit, window.DirOffset)
+		if err != nil {
+			return out, fmt.Errorf("s3manager: list dirs for prefix %q: %w", dirPrefixes, err)
+		}
+		for _, d := range dirs {
+			entries = append(entries, storage_types.DirEntry{
+				ID:             d.ID.String(),
+				Name:           d.Name,
+				IsDir:          true,
+				Path:           d.PathKey,
+				NavigationPath: filepath.Join(relPath, d.Name),
+			})
+		}
 	}
-	for _, d := range dirs {
-		entries = append(entries, storage_types.DirEntry{
-			ID:             d.ID.String(),
-			Name:           d.Name,
-			IsDir:          true,
-			Path:           d.PathKey,
-			NavigationPath: filepath.Join(relPath, d.Name),
-		})
+	if window.FileLimit != 0 {
+		files, err := s.Store.GetFileMetadataByDirPrefixPaged(drive.ID.String(), dirPrefixes, window.FileLimit, window.FileOffset)
+		if err != nil {
+			return out, fmt.Errorf("s3manager: list files for prefix %q: %w", dirPrefixes, err)
+		}
+		for _, f := range files {
+			signedURL, _ := s.Client.PresignGetObject(ctx, s.Client.BucketName, f.PathKey, 15*time.Minute)
+			entries = append(entries, storage_types.DirEntry{
+				ID:             f.ID.String(),
+				Name:           f.Name,
+				IsDir:          false,
+				Extension:      filepath.Ext(f.Name),
+				SignedUrl:      signedURL,
+				Size:           f.SizeInMb,
+				Path:           f.PathKey,
+				Thumbnail:      storage_types.ThumbnailURL(f.ThumbnailPath, config.Config.ThumbnailDir),
+				NavigationPath: filepath.Join(relPath, f.Name),
+			})
+		}
 	}
-	return entries, nil
+
+	out.Entries = entries
+	out.Total = dirCount + fileCount
+	out.PageSize = limit
+	out.Page = offset/limit + 1
+	return out, nil
 }
 
 func (s *S3Manager) GetFiles(relPath, driveId, userId string) ([]storage_types.DirEntry, error) {

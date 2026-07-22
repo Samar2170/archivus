@@ -216,8 +216,10 @@ func (h *StorageHandler) DownloadFileHandler(w http.ResponseWriter, r *http.Requ
 
 func (h *StorageHandler) GetFilesHandler(w http.ResponseWriter, r *http.Request) {
 	type getFilesRequest struct {
-		Path    string `json:"path"`
-		DriveId string `json:"driveId"`
+		Path     string `json:"path"`
+		DriveId  string `json:"driveId"`
+		Page     int    `json:"page"`
+		PageSize int    `json:"pageSize"`
 	}
 	var req getFilesRequest
 	if err := reqhelpers.DecodeRequest(r, &req); err != nil {
@@ -229,12 +231,15 @@ func (h *StorageHandler) GetFilesHandler(w http.ResponseWriter, r *http.Request)
 		response.UnauthorizedResponse(w, "user ID not found in context")
 		return
 	}
-	files, err := h.service.GetFilesV2(req.Path, req.DriveId, userID)
+	page, err := h.service.GetFilesV2(req.Path, req.DriveId, userID, req.Page, req.PageSize)
 	if err != nil {
 		response.BadRequestResponse(w, err.Error())
 		return
 	}
 	response.JSONResponse(w, map[string]interface{}{
-		"files": files,
+		"files":    page.Entries,
+		"total":    page.Total,
+		"page":     page.Page,
+		"pageSize": page.PageSize,
 	})
 }

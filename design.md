@@ -29,5 +29,15 @@
 2. Backup service [X] Automated (outside backend)
 3. Syncer service (outside backend) [X] (outside backend)
 4. Indexing, photo, and maybe even search indexing service
-5. Move/Delete file. Move/delete folder. Copy folder. Copy file.
-6. 
+5. Move/Delete file. Move/delete folder. Copy folder. Copy file. [X]
+6. Recyle bin service [X]
+
+
+```json
+{
+    "only-admin-delete": false, // true: only admins can delete files, false: writers can delete files
+    "only-admin-move": false, // true: only admins can move files, false: writers can move files
+    "only-admin-invite": true, // true: only admins can invite users, false: writers can invite users
+    "recycle-bin-retention-days": 30, // days to keep recycle bin items
+}
+```

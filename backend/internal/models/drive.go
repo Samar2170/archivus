@@ -83,6 +83,8 @@ type FileMetadata struct {
 	Encrypted bool `gorm:"not null;default:false"`
 
 	HasAccess []User `gorm:"many2many:file_access_users;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
+
+	Extension string `gorm:"not null;default:''"` // file extension, for search and filtering
 }
 
 func (f *FileMetadata) BeforeCreate(tx *gorm.DB) (err error) {

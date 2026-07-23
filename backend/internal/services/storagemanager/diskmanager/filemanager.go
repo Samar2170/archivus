@@ -163,53 +163,75 @@ func (dm *DiskManager) UploadFileV2(relPath, driveId, userId string, file multip
 	return nil
 }
 
-func (dm *DiskManager) GetFilesV2(relPath, driveId, userId string) ([]storage_types.DirEntry, error) {
+func (dm *DiskManager) GetFilesV2(relPath, driveId, userId string, page, pageSize int) (storage_types.PagedDirEntries, error) {
+	var out storage_types.PagedDirEntries
 	hasAccess, err := dm.CheckUserHasDriveAccess(userId, driveId)
 	if err != nil {
-		return nil, err
+		return out, err
 	}
 	if !hasAccess {
-		return nil, errors.New("user does not have access to this drive")
+		return out, errors.New("user does not have access to this drive")
 	}
 	drive, err := dm.Store.GetDriveByID(driveId)
 	if err != nil {
-		return nil, fmt.Errorf("diskmanager: get drive by id %q: %w", driveId, err)
+		return out, fmt.Errorf("diskmanager: get drive by id %q: %w", driveId, err)
 	}
 	dirPrefixes := [2]string{
 		filepath.Join(dm.Home, drive.Slug, relPath),
 		filepath.Join(dm.Home, drive.Slug, relPath) + "/",
 	}
-	files, err := dm.Store.GetFileMetadataByDirPrefix(drive.ID.String(), dirPrefixes)
+
+	limit, offset := storage_types.PageBounds(page, pageSize)
+	dirCount, err := dm.Store.CountDirectoriesByParentPrefix(drive.ID.String(), dirPrefixes)
 	if err != nil {
-		return nil, fmt.Errorf("diskmanager: list files for prefix %q: %w", dirPrefixes, err)
+		return out, fmt.Errorf("diskmanager: count dirs for prefix %q: %w", dirPrefixes, err)
 	}
-	dirs, err := dm.Store.GetDirectoriesByParentPrefix(drive.ID.String(), dirPrefixes)
+	fileCount, err := dm.Store.CountFileMetadataByDirPrefix(drive.ID.String(), dirPrefixes)
 	if err != nil {
-		return nil, fmt.Errorf("diskmanager: list dirs for prefix %q: %w", dirPrefixes, err)
+		return out, fmt.Errorf("diskmanager: count files for prefix %q: %w", dirPrefixes, err)
 	}
-	var entries []storage_types.DirEntry
-	for _, f := range files {
-		entries = append(entries, storage_types.DirEntry{
-			ID:             f.ID.String(),
-			Name:           f.Name,
-			IsDir:          false,
-			Extension:      filepath.Ext(f.Name),
-			Size:           f.SizeInMb,
-			Path:           f.PathKey,
-			Thumbnail:      storage_types.ThumbnailURL(f.ThumbnailPath, config.Config.ThumbnailDir),
-			NavigationPath: filepath.Join(relPath, f.Name),
-		})
+	window := storage_types.PageWindow(int(dirCount), limit, offset)
+
+	entries := make([]storage_types.DirEntry, 0, limit)
+	if window.DirLimit != 0 {
+		dirs, err := dm.Store.GetDirectoriesByParentPrefixPaged(drive.ID.String(), dirPrefixes, window.DirLimit, window.DirOffset)
+		if err != nil {
+			return out, fmt.Errorf("diskmanager: list dirs for prefix %q: %w", dirPrefixes, err)
+		}
+		for _, d := range dirs {
+			entries = append(entries, storage_types.DirEntry{
+				ID:             d.ID.String(),
+				Name:           d.Name,
+				IsDir:          true,
+				Path:           d.PathKey,
+				NavigationPath: filepath.Join(relPath, d.Name),
+			})
+		}
 	}
-	for _, d := range dirs {
-		entries = append(entries, storage_types.DirEntry{
-			ID:             d.ID.String(),
-			Name:           d.Name,
-			IsDir:          true,
-			Path:           d.PathKey,
-			NavigationPath: filepath.Join(relPath, d.Name),
-		})
+	if window.FileLimit != 0 {
+		files, err := dm.Store.GetFileMetadataByDirPrefixPaged(drive.ID.String(), dirPrefixes, window.FileLimit, window.FileOffset)
+		if err != nil {
+			return out, fmt.Errorf("diskmanager: list files for prefix %q: %w", dirPrefixes, err)
+		}
+		for _, f := range files {
+			entries = append(entries, storage_types.DirEntry{
+				ID:             f.ID.String(),
+				Name:           f.Name,
+				IsDir:          false,
+				Extension:      filepath.Ext(f.Name),
+				Size:           f.SizeInMb,
+				Path:           f.PathKey,
+				Thumbnail:      storage_types.ThumbnailURL(f.ThumbnailPath, config.Config.ThumbnailDir),
+				NavigationPath: filepath.Join(relPath, f.Name),
+			})
+		}
 	}
-	return entries, nil
+
+	out.Entries = entries
+	out.Total = dirCount + fileCount
+	out.PageSize = limit
+	out.Page = offset/limit + 1
+	return out, nil
 }
 
 func (dm *DiskManager) GetFiles(relPath, driveId, userId string) ([]storage_types.DirEntry, error) {

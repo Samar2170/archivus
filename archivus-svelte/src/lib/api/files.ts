@@ -16,12 +16,20 @@ export interface FileMetaData {
 
 interface FilesResponse {
 	files: FileMetaData[];
+	total: number;
+	page: number;
+	pageSize: number;
 }
 
-export async function getFiles(path: string, driveId: string): Promise<FilesResponse> {
+export async function getFiles(
+	path: string,
+	driveId: string,
+	page = 1,
+	pageSize = 24
+): Promise<FilesResponse> {
 	return apiFetch<FilesResponse>(paths.files, {
 		method: 'POST',
-		body: JSON.stringify({ path, driveId })
+		body: JSON.stringify({ path, driveId, page, pageSize })
 	});
 }
 

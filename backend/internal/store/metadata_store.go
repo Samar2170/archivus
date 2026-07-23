@@ -183,6 +183,40 @@ func (s *Store) GetDirectoriesByParentPrefix(driveID string, prefixes [2]string)
 	return dirs, result.Error
 }
 
+// CountFileMetadataByDirPrefix returns the number of files directly under the
+// given directory prefixes, used to page the combined file/directory listing.
+func (s *Store) CountFileMetadataByDirPrefix(driveID string, prefixes [2]string) (int64, error) {
+	var count int64
+	result := s.conn().Model(&models.FileMetadata{}).Where("drive_id = ? AND prefix IN ?", driveID, prefixes).Count(&count)
+	return count, result.Error
+}
+
+// CountDirectoriesByParentPrefix returns the number of directories directly
+// under the given parent prefixes.
+func (s *Store) CountDirectoriesByParentPrefix(driveID string, prefixes [2]string) (int64, error) {
+	var count int64
+	result := s.conn().Model(&models.DirectoryMetadata{}).Where("drive_id = ? AND prefix IN ?", driveID, prefixes).Count(&count)
+	return count, result.Error
+}
+
+// GetFileMetadataByDirPrefixPaged returns files under the given prefixes ordered
+// by name, sliced by limit/offset. A negative limit disables the limit.
+func (s *Store) GetFileMetadataByDirPrefixPaged(driveID string, prefixes [2]string, limit, offset int) ([]models.FileMetadata, error) {
+	var files []models.FileMetadata
+	result := s.conn().Where("drive_id = ? AND prefix IN ?", driveID, prefixes).
+		Order("name ASC").Limit(limit).Offset(offset).Find(&files)
+	return files, result.Error
+}
+
+// GetDirectoriesByParentPrefixPaged returns directories under the given prefixes
+// ordered by name, sliced by limit/offset. A negative limit disables the limit.
+func (s *Store) GetDirectoriesByParentPrefixPaged(driveID string, prefixes [2]string, limit, offset int) ([]models.DirectoryMetadata, error) {
+	var dirs []models.DirectoryMetadata
+	result := s.conn().Where("drive_id = ? AND prefix IN ?", driveID, prefixes).
+		Order("name ASC").Limit(limit).Offset(offset).Find(&dirs)
+	return dirs, result.Error
+}
+
 func (s *Store) GetFileMetadatasWoThumbnails(ctx context.Context, limit int) ([]models.FileMetadata, error) {
 	var files []models.FileMetadata
 	result := s.conn().Where("thumbnail_path IS NULL OR thumbnail_path = ''").Limit(limit).Find(&files)

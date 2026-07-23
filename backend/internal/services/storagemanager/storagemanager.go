@@ -21,7 +21,7 @@ type StorageManager interface {
 	// V2: stores PathKey/Prefix correctly and returns full metadata from DB.
 	CreateDirV2(subFolder, driveId, userId string) error
 	UploadFileV2(relPath, driveId, userId string, file multipart.File, fileHeader *multipart.FileHeader) error
-	GetFilesV2(relPath, driveId, userId string) ([]storage_types.DirEntry, error)
+	GetFilesV2(relPath, driveId, userId string, page, pageSize int) (storage_types.PagedDirEntries, error)
 
 	// MoveFile relocates a file into dstFolderRelPath (relative to the drive
 	// root), keeping its name.

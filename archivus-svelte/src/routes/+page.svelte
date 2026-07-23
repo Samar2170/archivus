@@ -16,6 +16,12 @@
 	let loading = false;
 	let error = "";
 
+	// Pagination
+	let currentPage = 1;
+	let pageSize = 24;
+	let total = 0;
+	$: totalPages = Math.max(1, Math.ceil(total / pageSize));
+
 	// Context menu (opened by right-click, or a long-press on touch devices).
 	let menu: { file: FileMetaData; x: number; y: number } | null = null;
 	// The file currently being moved / awaiting delete confirmation.
@@ -38,13 +44,33 @@
 				error = "No drive available for this account.";
 				return;
 			}
-			const result = await getFiles(currentFolder, driveId);
+			const result = await getFiles(
+				currentFolder,
+				driveId,
+				currentPage,
+				pageSize,
+			);
 			files = result.files ?? [];
+			total = result.total ?? 0;
+			pageSize = result.pageSize || pageSize;
+			// If the page we asked for no longer exists (e.g. after deletes),
+			// step back to the last valid page.
+			const lastPage = Math.max(1, Math.ceil(total / pageSize));
+			if (currentPage > lastPage) {
+				currentPage = lastPage;
+				await loadFiles();
+			}
 		} catch (err) {
 			error = (err as Error).message;
 		} finally {
 			loading = false;
 		}
+	}
+
+	function goToPage(target: number) {
+		if (target < 1 || target > totalPages || target === currentPage) return;
+		currentPage = target;
+		loadFiles();
 	}
 
 	onMount(() => {
@@ -55,8 +81,9 @@
 		loadFiles();
 	});
 
-	// Reload when folder query param changes
+	// Reload when folder query param changes, starting back at page 1
 	$: if ($authStore.isAuthenticated && currentFolder !== undefined) {
+		currentPage = 1;
 		loadFiles();
 	}
 
@@ -185,6 +212,36 @@
 					</div>
 				{/each}
 			</div>
+
+			<!-- Pagination -->
+			{#if totalPages > 1}
+				<div class="mt-6 flex items-center justify-center gap-4">
+					<button
+						on:click={() => goToPage(currentPage - 1)}
+						disabled={currentPage <= 1}
+						class="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+					>
+						← Previous
+					</button>
+					<span class="text-sm text-gray-600">
+						Page <span class="font-medium text-gray-900"
+							>{currentPage}</span
+						>
+						of
+						<span class="font-medium text-gray-900">{totalPages}</span>
+						<span class="hidden text-gray-400 sm:inline"
+							>· {total} items</span
+						>
+					</span>
+					<button
+						on:click={() => goToPage(currentPage + 1)}
+						disabled={currentPage >= totalPages}
+						class="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+					>
+						Next →
+					</button>
+				</div>
+			{/if}
 		{/if}
 	</main>
 

@@ -30,6 +30,24 @@ export async function getUserInfo(): Promise<UserInfoResponse> {
 	return apiFetch<UserInfoResponse>(paths.userInfo);
 }
 
+export interface SignupRequest {
+	username: string;
+	password: string;
+	pin: string;
+	email: string;
+	user_type: 'personal' | 'business';
+	is_admin?: boolean;
+	invite_code?: string;
+	drive_name?: string;
+}
+
+export async function signup(req: SignupRequest): Promise<void> {
+	await apiFetch(paths.register, {
+		method: 'POST',
+		body: JSON.stringify(req)
+	});
+}
+
 export async function signin(username: string, password: string, pin: string): Promise<void> {
 	const data = await apiFetch<LoginResponse>(paths.login, {
 		method: 'POST',

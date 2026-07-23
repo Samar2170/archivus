@@ -110,6 +110,11 @@
 					{loading ? "Signing in..." : "Sign in"}
 				</button>
 			</form>
+
+			<p class="mt-5 text-center text-sm text-gray-500">
+				Don't have an account?
+				<a href="/signup" class="font-medium text-orange-600 hover:text-orange-700">Sign up</a>
+			</p>
 		</div>
 	</div>
 </div>

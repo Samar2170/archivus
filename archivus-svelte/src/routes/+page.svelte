@@ -18,7 +18,7 @@
 
 	// Pagination
 	let currentPage = 1;
-	let pageSize = 20;
+	let pageSize = 24;
 	let total = 0;
 	$: totalPages = Math.max(1, Math.ceil(total / pageSize));
 

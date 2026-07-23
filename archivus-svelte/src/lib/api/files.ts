@@ -25,7 +25,7 @@ export async function getFiles(
 	path: string,
 	driveId: string,
 	page = 1,
-	pageSize = 20
+	pageSize = 24
 ): Promise<FilesResponse> {
 	return apiFetch<FilesResponse>(paths.files, {
 		method: 'POST',

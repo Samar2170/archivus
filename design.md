@@ -32,6 +32,7 @@
 
 4. Indexing, photo, and maybe even search indexing service
 6. Docs parse and save content, indexing, search
-7. Thumbnail fix
+7. Thumbnail fix [X]
 8. chunk uploads for syncer, large uploads
-9. 
+9. filter/sort
+10. search

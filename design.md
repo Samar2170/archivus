@@ -34,3 +34,4 @@
 6. Docs parse and save content, indexing, search
 7. Thumbnail fix
 8. chunk uploads for syncer, large uploads
+9. 

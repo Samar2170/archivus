@@ -2,6 +2,7 @@ package handlers
 
 import (
 	archivus_constants "archivus/internal/constants"
+	"archivus/internal/services/chunkupload"
 	"archivus/internal/services/storagemanager"
 	reqhelpers "archivus/pkg/reqHelpers"
 	"archivus/pkg/response"
@@ -12,10 +13,11 @@ import (
 
 type StorageHandler struct {
 	service storagemanager.StorageManager
+	chunks  *chunkupload.Manager
 }
 
-func NewStorageHandler(service storagemanager.StorageManager) *StorageHandler {
-	return &StorageHandler{service: service}
+func NewStorageHandler(service storagemanager.StorageManager, chunks *chunkupload.Manager) *StorageHandler {
+	return &StorageHandler{service: service, chunks: chunks}
 }
 
 func (h *StorageHandler) CreateFolder(w http.ResponseWriter, r *http.Request) {

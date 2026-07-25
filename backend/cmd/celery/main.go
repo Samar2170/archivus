@@ -2,6 +2,7 @@ package main
 
 import (
 	"archivus/internal/config"
+	"archivus/internal/services/oculus"
 	"archivus/internal/services/storagemanager"
 	"archivus/internal/services/storagemanager/diskmanager"
 	"archivus/internal/services/storagemanager/s3manager"
@@ -51,6 +52,17 @@ func StartScheduler(ctx context.Context, s *store.Store) (*cron.Cron, error) {
 			fn: func() {
 				log.Info().Msg("cron: purging expired recycle bin items")
 				runPurgeRecycleBin(ctx, s)
+			},
+		},
+		{
+			name: "mark-images",
+			spec: "0 */1 * * * *", // every 5 minutes
+			fn: func() {
+				log.Info().Msg("cron: marking image files")
+				service := oculus.NewService(s)
+				if err := service.MarkImages(); err != nil {
+					log.Error().Err(err).Msg("cron: failed to mark image files")
+				}
 			},
 		},
 	}

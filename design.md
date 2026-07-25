@@ -28,6 +28,9 @@
 1. API handlers [X]
 2. Backup service [X] Automated (outside backend)
 3. Syncer service (outside backend) [X] (outside backend)
+5. Move/Delete file. Move/delete folder. [X]
+
 4. Indexing, photo, and maybe even search indexing service
-5. Move/Delete file. Move/delete folder. Copy folder. Copy file.
-6. 
+6. Docs parse and save content, indexing, search
+7. Thumbnail fix
+8. chunk uploads for syncer, large uploads

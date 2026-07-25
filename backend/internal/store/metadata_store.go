@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 func (s *Store) CreateDirectoryMetadata(name, absPath, relPath, driveID string) (models.DirectoryMetadata, error) {
@@ -225,5 +226,42 @@ func (s *Store) GetFileMetadatasWoThumbnails(ctx context.Context, limit int) ([]
 
 func (s *Store) UpdateFileMetadataThumbnailPath(id, thumbnailPath string) error {
 	result := s.conn().Model(&models.FileMetadata{}).Where("id = ?", id).Update("thumbnail_path", thumbnailPath)
+	return result.Error
+}
+
+func (s *Store) GetFileMetadatasWoExtension(limit int) ([]models.FileMetadata, error) {
+	var files []models.FileMetadata
+	result := s.conn().Where("extension = ''").Limit(limit).Find(&files)
+	return files, result.Error
+}
+
+// MarkFileMetadatasAsImages flags the given file rows as images in a single
+// query.
+func (s *Store) MarkFileMetadatasAsImages(ids []uuid.UUID) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	result := s.conn().Model(&models.FileMetadata{}).Where("id IN ?", ids).Update("is_image", true)
+	return result.Error
+}
+
+// UpdateFileMetadataExtensions sets the extension for many file rows in a
+// single query using a CASE expression keyed by file ID.
+func (s *Store) UpdateFileMetadataExtensions(extensionsByID map[uuid.UUID]string) error {
+	if len(extensionsByID) == 0 {
+		return nil
+	}
+	caseSQL := "CASE id "
+	args := make([]interface{}, 0, len(extensionsByID)*2)
+	ids := make([]uuid.UUID, 0, len(extensionsByID))
+	for id, ext := range extensionsByID {
+		caseSQL += "WHEN ? THEN ? "
+		args = append(args, id, ext)
+		ids = append(ids, id)
+	}
+	caseSQL += "END"
+	result := s.conn().Model(&models.FileMetadata{}).
+		Where("id IN ?", ids).
+		Update("extension", gorm.Expr(caseSQL, args...))
 	return result.Error
 }

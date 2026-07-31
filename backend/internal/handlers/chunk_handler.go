@@ -2,14 +2,14 @@ package handlers
 
 import (
 	archivus_constants "archivus/internal/constants"
+	"archivus/internal/models"
 	"archivus/internal/services/chunkupload"
 	reqhelpers "archivus/pkg/reqHelpers"
 	"archivus/pkg/response"
+	"context"
 	"errors"
 	"fmt"
-	"mime/multipart"
 	"net/http"
-	"net/textproto"
 	"os"
 	"strconv"
 )
@@ -200,44 +200,50 @@ func (h *StorageHandler) CompleteChunkUploadHandler(w http.ResponseWriter, r *ht
 		return
 	}
 
+	// Assemble the chunks into a single file. Assemble writes it outside the
+	// session directory so it survives the Discard below; the storage manager
+	// now owns it and is responsible for removing it once persisted.
 	assembled, err := h.chunks.Assemble(sess)
 	if err != nil {
 		response.BadRequestResponse(w, err.Error())
 		return
 	}
-	defer os.Remove(assembled.Name())
-	defer assembled.Close()
+	assembledPath := assembled.Name()
+	assembled.Close() // we only need the path; the worker reopens it
 
-	info, err := assembled.Stat()
+	// Register the assembled file for persistence. For object storage this
+	// records a pending file and returns immediately, deferring the slow upload
+	// to a background worker (kept fast even for very large files); for local
+	// disk it persists synchronously and comes back ready.
+	fm, err := h.service.EnqueueChunkedUpload(sess.FolderPath, sess.DriveID, userID, sess.ContentType, sess.Size, sess.Filename, assembledPath)
 	if err != nil {
-		response.InternalServerErrorResponse(w, err.Error())
-		return
-	}
-
-	// UploadFileV2 works against multipart.File / *multipart.FileHeader; an
-	// *os.File satisfies multipart.File, and we hand-build the header from the
-	// session metadata so the assembled file flows through the same persistence
-	// path as a direct multipart upload.
-	fileHeader := &multipart.FileHeader{
-		Filename: sess.Filename,
-		Size:     info.Size(),
-		Header:   textproto.MIMEHeader{},
-	}
-	if sess.ContentType != "" {
-		fileHeader.Header.Set("Content-Type", sess.ContentType)
-	}
-
-	if err := h.service.UploadFileV2(sess.FolderPath, sess.DriveID, userID, assembled, fileHeader); err != nil {
+		os.Remove(assembledPath)
 		response.BadRequestResponse(w, err.Error())
 		return
 	}
 	if err := h.chunks.Discard(sess.UploadID); err != nil {
-		// The file is already persisted; a stale staging dir is non-fatal.
+		// The chunks are now redundant (the assembled file holds the bytes); a
+		// stale staging dir is non-fatal.
 		fmt.Printf("warning: failed to clean up chunk staging for %q: %v\n", sess.UploadID, err)
 	}
+
+	// Kick off the deferred upload now rather than waiting for the next cron
+	// pass. The cron job is the recovery net (e.g. across a restart); this
+	// goroutine handles the common case promptly. Row claiming makes the two
+	// safe to race. A no-op for the already-persisted disk backend.
+	if fm.UploadStatus == models.UploadStatusPending {
+		go func() {
+			if err := h.service.ProcessPendingUploads(context.Background()); err != nil {
+				fmt.Printf("warning: background upload processing failed: %v\n", err)
+			}
+		}()
+	}
+
 	response.JSONResponse(w, map[string]string{
-		"message":  "file uploaded successfully",
+		"message":  "upload accepted",
 		"filename": sess.Filename,
+		"fileId":   fm.ID.String(),
+		"status":   fm.UploadStatus,
 	})
 }
 

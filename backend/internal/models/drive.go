@@ -85,7 +85,33 @@ type FileMetadata struct {
 	HasAccess []User `gorm:"many2many:file_access_users;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
 
 	Extension string `gorm:"not null;default:''"` // file extension, for search and filtering
+
+	// UploadStatus tracks whether the file's bytes have actually landed in the
+	// storage backend. Direct uploads are written synchronously and are born
+	// "ready"; large chunked uploads finish assembly quickly but defer the slow
+	// push to object storage to a background worker, so they start "pending",
+	// move to "uploading" while a worker owns them, and become "ready" once the
+	// bytes are persisted (or "failed" after too many attempts).
+	UploadStatus string `gorm:"not null;default:'ready';index"`
+	// PendingSourcePath is the local assembled file awaiting upload, meaningful
+	// only while UploadStatus is pending/uploading. Cleared once the file is ready.
+	PendingSourcePath string `gorm:"not null;default:''"`
+	// UploadAttempts counts how many times a worker has tried to finalize this
+	// upload, so a persistently failing file eventually stops being retried.
+	UploadAttempts int `gorm:"not null;default:0"`
 }
+
+// UploadStatus values for FileMetadata.UploadStatus.
+const (
+	UploadStatusReady     = "ready"
+	UploadStatusPending   = "pending"
+	UploadStatusUploading = "uploading"
+	UploadStatusFailed    = "failed"
+
+	// MaxUploadAttempts is how many times a pending upload is retried by the
+	// worker before it is marked failed.
+	MaxUploadAttempts = 5
+)
 
 func (f *FileMetadata) BeforeCreate(tx *gorm.DB) (err error) {
 	f.ID = uuid.New()

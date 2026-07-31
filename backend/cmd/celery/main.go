@@ -55,6 +55,13 @@ func StartScheduler(ctx context.Context, s *store.Store) (*cron.Cron, error) {
 			},
 		},
 		{
+			name: "process-pending-uploads",
+			spec: "*/30 * * * * *", // every 30 seconds
+			fn: func() {
+				runProcessPendingUploads(ctx, s)
+			},
+		},
+		{
 			name: "mark-images",
 			spec: "0 */1 * * * *", // every 5 minutes
 			fn: func() {
@@ -122,6 +129,21 @@ func buildStorageManager(s *store.Store) (storagemanager.StorageManager, error) 
 		)
 	}
 	return diskmanager.GetDiskManager(s, config.Config.ArchivusHome), nil
+}
+
+// runProcessPendingUploads drains the queue of assembled chunked uploads whose
+// bytes have not yet been pushed to storage. It is the recovery net for the
+// inline finalizer the API kicks off on /complete: it retries transient
+// failures and picks up uploads orphaned by a restart.
+func runProcessPendingUploads(ctx context.Context, s *store.Store) {
+	sm, err := buildStorageManager(s)
+	if err != nil {
+		log.Error().Err(err).Msg("cron: failed to build storage manager for pending uploads")
+		return
+	}
+	if err := sm.ProcessPendingUploads(ctx); err != nil {
+		log.Error().Err(err).Msg("cron: failed to process pending uploads")
+	}
 }
 
 func runPurgeRecycleBin(ctx context.Context, s *store.Store) {

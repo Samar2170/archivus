@@ -28,6 +28,10 @@ type DirEntry struct {
 	Path      string
 	Thumbnail string
 
+	// UploadStatus is the backing file's persistence state ("ready", "pending",
+	// "uploading", "failed"). Empty for directories.
+	UploadStatus string
+
 	NavigationPath string
 }
 

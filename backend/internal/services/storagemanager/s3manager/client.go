@@ -10,8 +10,20 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+)
+
+const (
+	// multipartPartSize is the size of each part in a concurrent multipart
+	// upload. R2 requires every part except the last to be identical in size
+	// and at least 5 MiB.
+	multipartPartSize = 16 * 1024 * 1024 // 16 MiB
+	// multipartConcurrency is how many parts are uploaded in parallel, so a
+	// large object saturates upstream bandwidth instead of trickling over a
+	// single stream.
+	multipartConcurrency = 4
 )
 
 type Client struct {
@@ -94,6 +106,28 @@ func (c *Client) PutObject(ctx context.Context, bucket, key, contentType string,
 
 func (c *Client) PutObjectBytes(ctx context.Context, bucket, key, contentType string, data []byte) error {
 	return c.PutObject(ctx, bucket, key, contentType, int64(len(data)), bytes.NewReader(data))
+}
+
+// PutObjectMultipart streams body to the bucket using a concurrent multipart
+// upload. For large objects this uses many parallel connections instead of the
+// single stream PutObject uses, which is bandwidth-bound. The uploader
+// transparently falls back to a plain PutObject when body is smaller than one
+// part, so it is safe for any size and does not need ContentLength up front.
+func (c *Client) PutObjectMultipart(ctx context.Context, bucket, key, contentType string, body io.Reader) error {
+	uploader := manager.NewUploader(c.s3, func(u *manager.Uploader) {
+		u.PartSize = multipartPartSize
+		u.Concurrency = multipartConcurrency
+	})
+	input := &s3.PutObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+		Body:   body,
+	}
+	if contentType != "" {
+		input.ContentType = aws.String(contentType)
+	}
+	_, err := uploader.Upload(ctx, input)
+	return err
 }
 
 func (c *Client) HeadObject(ctx context.Context, bucket, key string) (*s3.HeadObjectOutput, error) {

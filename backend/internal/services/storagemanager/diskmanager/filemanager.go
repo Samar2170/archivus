@@ -5,10 +5,12 @@ import (
 	"archivus/internal/models"
 	storage_types "archivus/internal/services/storagemanager/types"
 	"archivus/internal/store"
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net/textproto"
 	"os"
 	"path/filepath"
 )
@@ -163,6 +165,46 @@ func (dm *DiskManager) UploadFileV2(relPath, driveId, userId string, file multip
 	return nil
 }
 
+// EnqueueChunkedUpload persists an assembled chunked upload. Writing to local
+// disk is fast, so unlike the object-storage backend there is nothing to defer:
+// the file is written synchronously through the normal UploadFileV2 path and
+// returned already "ready". The staged assembled file is removed afterwards.
+func (dm *DiskManager) EnqueueChunkedUpload(relPath, driveId, userId, contentType string, size int64, filename, localPath string) (models.FileMetadata, error) {
+	f, err := os.Open(localPath)
+	if err != nil {
+		return models.FileMetadata{}, fmt.Errorf("diskmanager: open staged file %q: %w", localPath, err)
+	}
+	defer f.Close()
+
+	header := &multipart.FileHeader{Filename: filename, Size: size, Header: textproto.MIMEHeader{}}
+	if contentType != "" {
+		header.Header.Set("Content-Type", contentType)
+	}
+	if err := dm.UploadFileV2(relPath, driveId, userId, f, header); err != nil {
+		return models.FileMetadata{}, err
+	}
+	if err := os.Remove(localPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		fmt.Printf("warning: failed to remove staged file %q: %v\n", localPath, err)
+	}
+
+	drive, err := dm.Store.GetDriveByID(driveId)
+	if err != nil {
+		return models.FileMetadata{}, fmt.Errorf("diskmanager: get drive %q: %w", driveId, err)
+	}
+	pathKey := filepath.Join(dm.Home, drive.Slug, relPath, filename)
+	fm, err := dm.Store.GetFileMetadataByDrivePathKey(driveId, pathKey)
+	if err != nil {
+		return models.FileMetadata{}, fmt.Errorf("diskmanager: lookup persisted file %q: %w", pathKey, err)
+	}
+	return fm, nil
+}
+
+// ProcessPendingUploads is a no-op for local disk: EnqueueChunkedUpload already
+// persists synchronously, so there is never a pending queue to drain.
+func (dm *DiskManager) ProcessPendingUploads(ctx context.Context) error {
+	return nil
+}
+
 func (dm *DiskManager) GetFilesV2(relPath, driveId, userId string, page, pageSize int) (storage_types.PagedDirEntries, error) {
 	var out storage_types.PagedDirEntries
 	hasAccess, err := dm.CheckUserHasDriveAccess(userId, driveId)
@@ -222,6 +264,7 @@ func (dm *DiskManager) GetFilesV2(relPath, driveId, userId string, page, pageSiz
 				Size:           f.SizeInMb,
 				Path:           f.PathKey,
 				Thumbnail:      storage_types.ThumbnailURL(f.ThumbnailPath, config.Config.ThumbnailDir),
+				UploadStatus:   f.UploadStatus,
 				NavigationPath: filepath.Join(relPath, f.Name),
 			})
 		}

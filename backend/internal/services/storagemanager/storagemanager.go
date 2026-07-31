@@ -23,6 +23,18 @@ type StorageManager interface {
 	UploadFileV2(relPath, driveId, userId string, file multipart.File, fileHeader *multipart.FileHeader) error
 	GetFilesV2(relPath, driveId, userId string, page, pageSize int) (storage_types.PagedDirEntries, error)
 
+	// EnqueueChunkedUpload registers an assembled chunked upload for persistence.
+	// localPath is the on-disk assembled file. For backends where writing is slow
+	// (object storage) the row is created as pending and the actual push is
+	// deferred to ProcessPendingUploads; for fast local backends it may persist
+	// synchronously and return a ready row. The caller must not remove localPath;
+	// ownership transfers to the storage manager.
+	EnqueueChunkedUpload(relPath, driveId, userId, contentType string, size int64, filename, localPath string) (models.FileMetadata, error)
+	// ProcessPendingUploads pushes any pending assembled uploads to the backend
+	// and flips them to ready. It is safe to call concurrently: rows are claimed
+	// atomically, so overlapping callers never upload the same file twice.
+	ProcessPendingUploads(ctx context.Context) error
+
 	// MoveFile relocates a file into dstFolderRelPath (relative to the drive
 	// root), keeping its name.
 	MoveFile(fileId, dstFolderRelPath, driveId, userId string) error

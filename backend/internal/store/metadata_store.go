@@ -316,7 +316,7 @@ func (s *Store) GetDirectoriesByParentPrefixPaged(driveID string, prefixes [2]st
 
 func (s *Store) GetFileMetadatasWoThumbnails(ctx context.Context, limit int) ([]models.FileMetadata, error) {
 	var files []models.FileMetadata
-	result := s.conn().Where("(thumbnail_path IS NULL OR thumbnail_path = '') AND upload_status = ?", models.UploadStatusReady).Limit(limit).Find(&files)
+	result := s.conn().Where("(thumbnail_path IS NULL OR thumbnail_path = '') AND upload_status = ? AND is_image = true", models.UploadStatusReady).Limit(limit).Find(&files)
 	return files, result.Error
 }
 

@@ -66,10 +66,7 @@ func StartScheduler(ctx context.Context, s *store.Store) (*cron.Cron, error) {
 			spec: "0 */1 * * * *", // every 5 minutes
 			fn: func() {
 				log.Info().Msg("cron: marking image files")
-				service := oculus.NewService(s)
-				if err := service.MarkImages(); err != nil {
-					log.Error().Err(err).Msg("cron: failed to mark image files")
-				}
+				runMarkImages(s)
 			},
 		},
 	}
@@ -149,12 +146,29 @@ func runProcessPendingUploads(ctx context.Context, s *store.Store) {
 func runPurgeRecycleBin(ctx context.Context, s *store.Store) {
 	sm, err := buildStorageManager(s)
 	if err != nil {
-		log.Error().Err(err).Msg("cron: failed to build storage manager for recycle bin purge")
+		log.Error().Err(err).Msg("failed to build storage manager for recycle bin purge")
 		return
 	}
 	if err := sm.PurgeExpiredRecycleBin(ctx); err != nil {
-		log.Error().Err(err).Msg("cron: failed to purge expired recycle bin items")
+		log.Error().Err(err).Msg("failed to purge expired recycle bin items")
 	}
+}
+
+func runMarkImages(s *store.Store) {
+	service := oculus.NewService(s)
+	if err := service.MarkImages(); err != nil {
+		log.Error().Err(err).Msg("failed to mark image files")
+	}
+}
+
+// runCron starts the scheduler and blocks until the process is interrupted.
+func runCron(ctx context.Context, s *store.Store) {
+	if _, err := StartScheduler(ctx, s); err != nil {
+		log.Fatal().Err(err).Msg("failed to start scheduler")
+	}
+
+	<-ctx.Done() // block until interrupted
+	log.Info().Msg("celery: shutting down")
 }
 
 func main() {
@@ -162,11 +176,17 @@ func main() {
 		fmt.Println("Warning DEBUG mode is enabled, running in development mode")
 	}
 	var err error
-	parser := argparse.NewParser("archivus-v2", "A simple file archiver")
+	parser := argparse.NewParser("celery", "Archivus background worker: scheduler and manual jobs")
 	serverMode := parser.Selector("m", "mode", []string{"home", "biz"}, &argparse.Options{
 		Required: true,
 		Help:     "Server mode: 'home' for personal use, 'biz' for business use",
 	})
+
+	// Subcommands: `cron` runs the scheduler; the rest run a single job once.
+	cronCmd := parser.NewCommand("cron", "Run the periodic job scheduler until interrupted")
+	thumbnailsCmd := parser.NewCommand("thumbnails", "Generate pending thumbnails once and exit")
+	purgeCmd := parser.NewCommand("purge-recycle-bin", "Purge expired recycle bin items once and exit")
+	markImagesCmd := parser.NewCommand("mark-images", "Mark image files once and exit")
 
 	err = parser.Parse(os.Args)
 	if err != nil {
@@ -194,11 +214,20 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if _, err := StartScheduler(ctx, s); err != nil {
-		log.Fatal().Err(err).Msg("failed to start scheduler")
+	switch {
+	case cronCmd.Happened():
+		runCron(ctx, s)
+	case thumbnailsCmd.Happened():
+		log.Info().Msg("running thumbnail generation")
+		runThumbnailService(ctx, s)
+	case purgeCmd.Happened():
+		log.Info().Msg("running recycle bin purge")
+		runPurgeRecycleBin(ctx, s)
+	case markImagesCmd.Happened():
+		log.Info().Msg("running image marking")
+		runMarkImages(s)
+	default:
+		// No subcommand given: print usage.
+		print(parser.Usage(nil))
 	}
-
-	<-ctx.Done() // block until interrupted
-	log.Info().Msg("celery: shutting down")
-
 }

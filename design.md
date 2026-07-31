@@ -32,5 +32,8 @@
 
 4. Indexing, photo, and maybe even search indexing service
 6. Docs parse and save content, indexing, search
-7. Thumbnail fix
+7. Thumbnail fix [X]
 8. chunk uploads for syncer, large uploads
+9. change tile size to handle both veritcal and horizontal thumbnails, separate thumbnails for json
+10. Backups for diskmanager ?
+11. sync-client upgrade but merge chunker first.

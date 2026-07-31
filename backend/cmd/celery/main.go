@@ -4,7 +4,6 @@ import (
 	"archivus/internal/config"
 	"archivus/internal/services/oculus"
 	"archivus/internal/services/storagemanager"
-	"archivus/internal/services/storagemanager/diskmanager"
 	"archivus/internal/services/storagemanager/s3manager"
 	"archivus/internal/services/thumbnail"
 	"archivus/internal/store"
@@ -107,22 +106,8 @@ func runThumbnailService(ctx context.Context, s *store.Store) {
 
 }
 
-// buildStorageManager constructs the storage manager matching the configured
-// backend (S3 in biz mode, local disk otherwise), mirroring cmd/archivus.
-func buildStorageManager(s *store.Store) (storagemanager.StorageManager, error) {
-	if config.Config.S3Enabled {
-		return s3manager.GetS3Manager(s,
-			config.S3Cfg.AccountID,
-			config.S3Cfg.AccessKey,
-			config.S3Cfg.SecretKey,
-			config.S3Cfg.BucketName,
-		)
-	}
-	return diskmanager.GetDiskManager(s, config.Config.ArchivusHome), nil
-}
-
 func runPurgeRecycleBin(ctx context.Context, s *store.Store) {
-	sm, err := buildStorageManager(s)
+	sm, err := storagemanager.FromConfig(s)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to build storage manager for recycle bin purge")
 		return
@@ -172,13 +157,8 @@ func main() {
 		return
 	}
 
-	var s3ConfigPaths []string
-	s3ConfigPaths, err = config.DefaultS3Paths()
 	fmt.Printf("Running in %s mode\n", *serverMode)
-	if err != nil && *serverMode == "biz" {
-		panic(err)
-	}
-	if err := config.Init(*serverMode, s3ConfigPaths); err != nil {
+	if err := config.Init(*serverMode); err != nil {
 		panic(err)
 	}
 	fmt.Printf("Config initialized\n")

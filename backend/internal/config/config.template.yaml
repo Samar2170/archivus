@@ -1,12 +1,37 @@
-default_write_access: true
-default_read_access: true
-logs_dir: "logs"
-secret_key: "JuRKdO6AMjn4aMybwaVA9H9CsWpyULQA"
-base_dir: "archivus"
-server_salt: "s0m3R4nd0mS4lt"
-s3_enabled: true
-s3:
-  account_id: "4956244340f044f919bd5d2b67dd3b8e"
-  s3_api: "https://4956244340f044f919bd5d2b67dd3b8e.r2.cloudflarestorage.com"
-  access_key: ""
-  secret_key: ""
+# Reference for ~/.archivus/config.yaml (./.archivus/config.yaml in debug
+# builds). Archivus writes this file itself on first run — edit it afterwards,
+# or override any field at runtime with the ARCHIVUS_* env vars noted below.
+#
+# Precedence, lowest to highest:  defaults -> this file -> ARCHIVUS_* env
+# Env overrides apply to the current run only; they are never written back here.
+
+# Whether a new user gets write access by default.   ARCHIVUS_DEFAULT_WRITE_ACCESS
+default_write_access: false
+# Whether users may create their own drives.         ARCHIVUS_ALLOW_USER_DRIVE
+allow_user_drive: true
+
+# Root of user file storage.                         ARCHIVUS_HOME
+base_dir: "/home/you/archivus"
+
+# Generated on first run if left empty. Changing secret_key invalidates every
+# issued token.                          ARCHIVUS_SECRET_KEY / ARCHIVUS_SERVER_SALT
+secret_key: ""
+server_salt: ""
+
+# Left empty, these are derived: logs under the settings dir, thumbnails under
+# base_dir. Leaving them empty means they follow base_dir if you move it.
+logs_dir: ""       # ARCHIVUS_LOGS_DIR
+thumbnail_dir: ""  # ARCHIVUS_THUMBNAIL_DIR
+
+# Public URL the backend is reached on, if behind a proxy.  ARCHIVUS_BACKEND_PROXY_URL
+backend_proxy_url: ""
+
+# S3 is NOT configured here. It is enabled by running with `-m biz`, and its
+# credentials are read from a separate s3_config.yaml (or .json) looked up in:
+#   $ARCHIVUS_S3_CONFIG, then <settings dir>/s3_config.yaml, then ~/s3_config.yaml
+#
+# s3_config.yaml:
+#   account_id: ""
+#   s3_api: "https://<account_id>.r2.cloudflarestorage.com"
+#   access_key: ""
+#   secret_key: ""

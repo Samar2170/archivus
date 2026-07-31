@@ -1,7 +1,6 @@
 package config
 
 import (
-	archivus_constants "archivus/internal/constants"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -57,30 +56,18 @@ func LoadS3Config(paths []string) (*S3Config, error) {
 	return &cfg, nil
 }
 
-// DefaultS3Paths returns the path to the s3 config file. It looks in the
-// .archivus settings directory first, then falls back to the project/home
-// directory, returning the first location that exists. If neither exists it
-// returns the settings-directory path (co-located with config.yaml).
-func DefaultS3Paths() ([]string, error) {
-	var err error
-	var projectDir string
-	if DEBUG {
-		projectDir, err = os.Getwd()
-	} else {
-		projectDir, err = os.UserHomeDir()
+// s3ConfigPaths returns the candidate locations for the s3 config file, most
+// specific first: ARCHIVUS_S3_CONFIG if set, then the settings directory
+// (co-located with config.yaml), then the project/home directory.
+func s3ConfigPaths(home, root string) []string {
+	var paths []string
+	if p := os.Getenv("ARCHIVUS_S3_CONFIG"); p != "" {
+		paths = append(paths, p)
 	}
-	if err != nil {
-		return []string{""}, err
-	}
-
-	candidates := []string{
-		filepath.Join(projectDir, archivus_constants.SettingsDir, "s3_config.yaml"),
-		filepath.Join(projectDir, "s3_config.yaml"),
-	}
-	for _, p := range candidates {
-		if _, err := os.Stat(p); err == nil {
-			return candidates, nil
-		}
-	}
-	return candidates, nil
+	return append(paths,
+		filepath.Join(root, s3ConfigFileName),
+		filepath.Join(home, s3ConfigFileName),
+	)
 }
+
+const s3ConfigFileName = "s3_config.yaml"

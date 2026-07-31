@@ -4,8 +4,6 @@ import (
 	"archivus/internal/config"
 	"archivus/internal/services/auth"
 	"archivus/internal/services/storagemanager"
-	"archivus/internal/services/storagemanager/diskmanager"
-	"archivus/internal/services/storagemanager/s3manager"
 	"archivus/internal/store"
 	"archivus/server"
 	"fmt"
@@ -31,13 +29,8 @@ func main() {
 		print(parser.Usage(err))
 		return
 	}
-	var s3ConfigPaths []string
-	s3ConfigPaths, err = config.DefaultS3Paths()
 	fmt.Printf("Running in %s mode\n", *serverMode)
-	if err != nil && *serverMode == "biz" {
-		panic(err)
-	}
-	if err := config.Init(*serverMode, s3ConfigPaths); err != nil {
+	if err := config.Init(*serverMode); err != nil {
 		panic(err)
 	}
 	fmt.Printf("Config initialized\n")
@@ -47,19 +40,9 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	var dm storagemanager.StorageManager
-	if config.Config.S3Enabled {
-		dm, err = s3manager.GetS3Manager(s,
-			config.S3Cfg.AccountID,
-			config.S3Cfg.AccessKey,
-			config.S3Cfg.SecretKey,
-			config.S3Cfg.BucketName,
-		)
-		if err != nil {
-			panic(err)
-		}
-	} else {
-		dm = diskmanager.GetDiskManager(s, config.Config.ArchivusHome)
+	dm, err := storagemanager.FromConfig(s)
+	if err != nil {
+		panic(err)
 	}
 	as := auth.AuthService{
 		Store:              s,

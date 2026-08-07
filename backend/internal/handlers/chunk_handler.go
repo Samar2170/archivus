@@ -81,6 +81,18 @@ func (h *StorageHandler) InitChunkUploadHandler(w http.ResponseWriter, r *http.R
 		response.BadRequestResponse(w, "file exceeds maximum upload size")
 		return
 	}
+	// Reject an unknown destination folder now rather than after the client has
+	// spent bandwidth pushing every chunk, only to fail at /complete. An empty
+	// folderPath is the drive root and always exists.
+	exists, err := h.service.DirExists(req.FolderPath, req.DriveId, userID)
+	if err != nil {
+		response.BadRequestResponse(w, err.Error())
+		return
+	}
+	if !exists {
+		response.NotFoundResponse(w, "folder does not exist")
+		return
+	}
 
 	sess, err := h.chunks.Init(chunkupload.Session{
 		UserID:      userID,

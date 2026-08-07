@@ -268,6 +268,15 @@ func (s *Store) UpdateFileMetadataContent(id string, sizeInMb float64, contentTy
 	return result.Error
 }
 
+// DirectoryExistsByDrivePathKey reports whether a directory row exists for the
+// exact key within a drive. Upload paths use it to reject a write into a folder
+// that was never created.
+func (s *Store) DirectoryExistsByDrivePathKey(driveID, pathKey string) (bool, error) {
+	var count int64
+	result := s.conn().Model(&models.DirectoryMetadata{}).Where("drive_id = ? AND path_key = ?", driveID, pathKey).Count(&count)
+	return count > 0, result.Error
+}
+
 func (s *Store) GetFileMetadataByDirPrefix(driveID string, prefixes [2]string) ([]models.FileMetadata, error) {
 	var files []models.FileMetadata
 	result := s.conn().Where("drive_id = ? AND prefix IN ?", driveID, prefixes).Find(&files)

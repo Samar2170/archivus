@@ -14,6 +14,11 @@ type StorageManager interface {
 
 	CreateDir(subFolder, driveId, userId string) error
 	DeleteDir(relPath, driveId, userId string) error
+	// DirExists reports whether relPath (relative to the drive root) is an
+	// existing folder in the drive. An empty relPath means the drive root, which
+	// always exists. Write access to the drive is required, so it cannot be used
+	// to probe folders in drives the caller cannot write to.
+	DirExists(relPath, driveId, userId string) (bool, error)
 	UploadFile(relPath, driveId, userId string, file multipart.File, fileHeader *multipart.FileHeader) error
 	DownloadFile(fileId string, driveId, userId string) (*os.File, *models.FileMetadata, error)
 	GetFiles(relPath, driveId, userId string) ([]storage_types.DirEntry, error)

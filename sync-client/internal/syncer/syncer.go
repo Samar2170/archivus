@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"time"
 
 	"archivus-sync/internal/api"
 	"archivus-sync/internal/config"
@@ -21,12 +22,20 @@ import (
 // Larger files are skipped with a warning rather than failing the whole run.
 const maxUploadSize = 2 << 30 // 2 GB
 
+// chunkUploadThreshold is the size above which a file goes through the backend's
+// resumable chunked endpoints instead of a single multipart POST. Large uploads
+// are the ones a dropped connection hurts most: chunks land idempotently, so a
+// retry only re-sends the pieces that did not make it.
+const chunkUploadThreshold = 64 << 20 // 64 MB
+
 // Syncer coordinates change detection and uploads against a single backend.
 type Syncer struct {
 	cfg    *config.Config
 	client *api.Client
 	state  *state
 	log    *log.Logger
+	// chunkThreshold is chunkUploadThreshold; overridden in tests.
+	chunkThreshold int64
 }
 
 // New builds a Syncer from a logged-in config.
@@ -39,10 +48,11 @@ func New(cfg *config.Config, logger *log.Logger) (*Syncer, error) {
 		return nil, err
 	}
 	return &Syncer{
-		cfg:    cfg,
-		client: api.New(cfg.ServerURL, cfg.Token),
-		state:  st,
-		log:    logger,
+		cfg:            cfg,
+		client:         api.New(cfg.ServerURL, cfg.Token),
+		state:          st,
+		log:            logger,
+		chunkThreshold: chunkUploadThreshold,
 	}, nil
 }
 
@@ -171,6 +181,9 @@ func (s *Syncer) uploadOne(ctx context.Context, absPath string, info os.FileInfo
 	prev, known := s.state.Files[absPath]
 	fastUnchanged := known && prev.Size == info.Size() && prev.ModTime == info.ModTime().UnixNano()
 	if fastUnchanged && !force {
+		// Nothing to send, so any session left over from an earlier attempt is
+		// never going to be resumed.
+		s.discardPending(ctx, absPath)
 		return Result{Skipped: 1}
 	}
 
@@ -184,10 +197,11 @@ func (s *Syncer) uploadOne(ctx context.Context, absPath string, info os.FileInfo
 	if known && sum == prev.Checksum && !force {
 		// Content identical; refresh recorded metadata so the fast path hits next time.
 		s.state.Files[absPath] = fileState{Size: info.Size(), ModTime: info.ModTime().UnixNano(), Checksum: sum}
+		s.discardPending(ctx, absPath)
 		return Result{Skipped: 1}
 	}
 
-	if err := s.client.UploadFile(ctx, driveID, folderPath, absPath); err != nil {
+	if err := s.upload(ctx, absPath, info, driveID, folderPath, sum); err != nil {
 		s.log.Printf("upload %q -> /%s: %v", absPath, folderPath, err)
 		return Result{Failed: 1}
 	}
@@ -198,4 +212,90 @@ func (s *Syncer) uploadOne(ctx context.Context, absPath string, info os.FileInfo
 	}
 	s.log.Printf("uploaded %q -> %s/%s", absPath, driveID, dest)
 	return Result{Uploaded: 1}
+}
+
+// upload sends one file, choosing between a single multipart POST and the
+// resumable chunked flow based on size. sum is the file's content hash; it ties
+// a stored session to the exact bytes it was started for.
+func (s *Syncer) upload(ctx context.Context, absPath string, info os.FileInfo, driveID, folderPath, sum string) error {
+	if info.Size() <= s.chunkThreshold {
+		// A small file that somehow has a session recorded (threshold lowered,
+		// file shrunk) will never resume it; let it go.
+		s.discardPending(ctx, absPath)
+		return s.client.UploadFile(ctx, driveID, folderPath, absPath)
+	}
+	return s.uploadChunked(ctx, absPath, info, driveID, folderPath, sum)
+}
+
+// uploadChunked resumes a stored upload session for absPath when there is a
+// usable one, and otherwise starts a fresh one. Either way the session is left
+// recorded in the state file until the upload completes, so a run that dies
+// mid-transfer resumes from where it stopped rather than re-sending the file.
+func (s *Syncer) uploadChunked(ctx context.Context, absPath string, info os.FileInfo, driveID, folderPath, sum string) error {
+	if p, ok := s.state.Pending[absPath]; ok {
+		if p.resumable(info.Size(), sum, driveID, folderPath, time.Now()) {
+			err := s.client.ResumeChunkedUpload(ctx, p.session(), absPath)
+			if err == nil {
+				delete(s.state.Pending, absPath)
+				s.log.Printf("resumed chunked upload of %q (session %s)", absPath, p.UploadID)
+				return nil
+			}
+			if !errors.Is(err, api.ErrSessionGone) {
+				// Keep the record: whatever chunks landed are still on the
+				// server and a later run can pick up from there.
+				return err
+			}
+			s.log.Printf("chunked upload session for %q is gone; starting over", absPath)
+			delete(s.state.Pending, absPath)
+		} else {
+			// Different bytes, a different destination, or too old to trust:
+			// the staged chunks are useless, so release them server-side.
+			s.discardPending(ctx, absPath)
+		}
+	}
+
+	sess, err := s.client.StartChunkedUpload(ctx, driveID, folderPath, absPath)
+	if err != nil {
+		return err
+	}
+	s.state.Pending[absPath] = pendingUpload{
+		UploadID:    sess.UploadID,
+		ChunkSize:   sess.ChunkSize,
+		TotalChunks: sess.TotalChunks,
+		Size:        info.Size(),
+		Checksum:    sum,
+		DriveID:     driveID,
+		FolderPath:  folderPath,
+		StartedAt:   time.Now().Unix(),
+	}
+	// Persist the session before sending a single byte. The whole point is to
+	// survive a crash mid-upload, and the run's own end-of-run save will not
+	// happen if the process never gets there.
+	if err := s.state.save(); err != nil {
+		// A session that can't be recorded can never be resumed, so don't leave
+		// it staged on the server.
+		s.discardPending(ctx, absPath)
+		return err
+	}
+
+	if err := s.client.ResumeChunkedUpload(ctx, sess, absPath); err != nil {
+		return err
+	}
+	delete(s.state.Pending, absPath)
+	return nil
+}
+
+// discardPending drops any recorded session for absPath, telling the server to
+// release its staged chunks. Failures are logged, not returned: a session that
+// cannot be aborted is the server's disk to reclaim, not a reason to fail the
+// file.
+func (s *Syncer) discardPending(ctx context.Context, absPath string) {
+	p, ok := s.state.Pending[absPath]
+	if !ok {
+		return
+	}
+	delete(s.state.Pending, absPath)
+	if err := s.client.AbortChunkUpload(ctx, p.UploadID); err != nil {
+		s.log.Printf("abort stale upload session %s for %q: %v", p.UploadID, absPath, err)
+	}
 }

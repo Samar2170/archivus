@@ -14,18 +14,41 @@ The client talks to the server over the same HTTP API the web frontend uses:
 
 - `POST /auth/login` → bearer token
 - `POST /storage/file/upload` → multipart upload (`driveId`, `folderPath`, `files`)
+- `POST /storage/file/upload/chunk/{init,part,status,complete,abort}` → resumable
+  chunked upload, used automatically for large files
 
 Config and sync state live under `~/.archivus-sync` (override with
 `ARCHIVUS_SYNC_HOME`):
 
 - `config.json` — server URL, bearer token, tracked folders
-- `state.json` — per-file `{size, modTime, sha256}` used for change detection
+- `state.json` — per-file `{size, modTime, sha256}` used for change detection,
+  plus any unfinished chunked-upload sessions (see below)
 
 **Change detection.** On each run the client stats every file. If size and
 mtime match the recorded state it's skipped without hashing (fast path).
 Otherwise it computes a SHA-256 and compares it to the stored checksum; the file
 is uploaded only if the hash actually differs. A `touch` that doesn't change
 content therefore uploads nothing.
+
+**Large files.** Files over **64 MB** are sent through the server's resumable
+chunked endpoints instead of one long multipart POST: the client inits a
+session, streams 8 MB chunks, then asks the server to assemble them. Chunk
+writes are idempotent server-side, so a chunk that fails is retried (up to 3
+attempts) after re-reading the session status, and only the pieces that did not
+land are re-sent. Files still cannot exceed the server's 2 GB per-file limit.
+
+**Resuming across runs.** The upload session is written to `state.json` (under
+`pending`, keyed by absolute local path) *before* the first chunk goes out, so a
+client that is killed mid-transfer — or a machine that reboots — picks the
+upload back up on the next run instead of re-sending the whole file. The next
+run asks the server which chunk indexes it already has and sends only the rest.
+
+A stored session is only resumed if it still matches the local file exactly
+(size, SHA-256, drive, and destination folder) and is less than 7 days old.
+Otherwise — or if the server has forgotten the session — the client aborts it,
+releasing the staged chunks, and starts the file over. The same abort is what
+eventually reclaims sessions abandoned for good, since the server does not
+expire them on its own.
 
 ## Install
 

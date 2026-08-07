@@ -27,6 +27,15 @@ const (
 	// MaxMultipartMemory caps how much of a multipart upload is buffered in
 	// memory during parsing; the remainder is spooled to temp files on disk.
 	MaxMultipartMemory = 32 << 20 // 32 MB
+
+	// MaxChunkSize caps the size of a single chunk in a chunked upload. Clients
+	// should keep individual chunks well under this; the whole assembled file is
+	// still bounded by MaxUploadSize at completion time.
+	MaxChunkSize = 64 << 20 // 64 MB
+
+	// ChunkStagingDirName is the directory under the archivus home where
+	// in-progress chunked uploads are staged before assembly.
+	ChunkStagingDirName = ".chunks"
 )
 
 type ContextKey string

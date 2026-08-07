@@ -135,6 +135,102 @@ func (s *Store) CreateFileMetadataV2(name, pathKey, prefix, contentType, driveID
 	return fm, result.Error
 }
 
+// CreatePendingFileMetadataV2 records a file whose bytes have been assembled
+// locally but not yet pushed to the storage backend. sourcePath is the local
+// assembled file the background worker will upload. The row is visible in
+// listings immediately (as "pending") so users see the file is on its way.
+func (s *Store) CreatePendingFileMetadataV2(name, pathKey, prefix, contentType, driveID, uploadedByID string, sizeInMb float64, sourcePath string) (models.FileMetadata, error) {
+	driveIDParsed, err := uuid.Parse(driveID)
+	if err != nil {
+		return models.FileMetadata{}, fmt.Errorf("invalid drive ID: %w", err)
+	}
+	uploadedByIDParsed, err := uuid.Parse(uploadedByID)
+	if err != nil {
+		return models.FileMetadata{}, fmt.Errorf("invalid uploaded by ID: %w", err)
+	}
+	fm := models.FileMetadata{
+		Name:              name,
+		PathKey:           pathKey,
+		Prefix:            prefix,
+		ContentType:       contentType,
+		DriveID:           driveIDParsed,
+		UploadedByID:      uploadedByIDParsed,
+		SizeInMb:          sizeInMb,
+		UploadStatus:      models.UploadStatusPending,
+		PendingSourcePath: sourcePath,
+	}
+	result := s.conn().Create(&fm)
+	return fm, result.Error
+}
+
+// MarkFileMetadataPending flips an existing (ready) file back to pending so a
+// chunked overwrite can replace its bytes. The old size/content-type are left
+// intact so the listing keeps showing the current version until the new bytes land.
+func (s *Store) MarkFileMetadataPending(id, sourcePath string) error {
+	result := s.conn().Model(&models.FileMetadata{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"upload_status":       models.UploadStatusPending,
+		"pending_source_path": sourcePath,
+		"upload_attempts":     0,
+	})
+	return result.Error
+}
+
+// GetPendingFileUploads returns files awaiting a background push to storage,
+// oldest first, so the worker drains them in arrival order.
+func (s *Store) GetPendingFileUploads(limit int) ([]models.FileMetadata, error) {
+	var files []models.FileMetadata
+	result := s.conn().Where("upload_status = ?", models.UploadStatusPending).
+		Order("updated_at ASC").Limit(limit).Find(&files)
+	return files, result.Error
+}
+
+// ClaimPendingUpload atomically transitions a row from pending to uploading and
+// bumps its attempt count. It returns claimed=true only if this call is the one
+// that won the row, so the inline finalizer and the cron recovery job never
+// upload the same file twice.
+func (s *Store) ClaimPendingUpload(id string) (bool, error) {
+	result := s.conn().Model(&models.FileMetadata{}).
+		Where("id = ? AND upload_status = ?", id, models.UploadStatusPending).
+		Updates(map[string]interface{}{
+			"upload_status":   models.UploadStatusUploading,
+			"upload_attempts": gorm.Expr("upload_attempts + 1"),
+		})
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected == 1, nil
+}
+
+// MarkFileUploadReady marks a finalized upload as ready, records its final size,
+// clears the staging pointer, and clears the thumbnail path so the thumbnail
+// job regenerates it from the freshly uploaded content.
+func (s *Store) MarkFileUploadReady(id string, sizeInMb float64) error {
+	result := s.conn().Model(&models.FileMetadata{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"upload_status":       models.UploadStatusReady,
+		"pending_source_path": "",
+		"size_in_mb":          sizeInMb,
+		"thumbnail_path":      "",
+	})
+	return result.Error
+}
+
+// RevertUploadToPending puts a row that failed to finalize back into the pending
+// queue so a later worker pass retries it (used for transient errors, up to
+// MaxUploadAttempts).
+func (s *Store) RevertUploadToPending(id string) error {
+	result := s.conn().Model(&models.FileMetadata{}).Where("id = ?", id).
+		Update("upload_status", models.UploadStatusPending)
+	return result.Error
+}
+
+// MarkFileUploadFailed gives up on a pending upload after too many attempts. The
+// staging file pointer is kept for diagnostics.
+func (s *Store) MarkFileUploadFailed(id string) error {
+	result := s.conn().Model(&models.FileMetadata{}).Where("id = ?", id).
+		Update("upload_status", models.UploadStatusFailed)
+	return result.Error
+}
+
 func (s *Store) CreateDirectoryMetadataV2(name, pathKey, prefix, driveID string) (models.DirectoryMetadata, error) {
 	driveIDParsed, err := uuid.Parse(driveID)
 	if err != nil {
@@ -170,6 +266,15 @@ func (s *Store) UpdateFileMetadataContent(id string, sizeInMb float64, contentTy
 		"thumbnail_path": "",
 	})
 	return result.Error
+}
+
+// DirectoryExistsByDrivePathKey reports whether a directory row exists for the
+// exact key within a drive. Upload paths use it to reject a write into a folder
+// that was never created.
+func (s *Store) DirectoryExistsByDrivePathKey(driveID, pathKey string) (bool, error) {
+	var count int64
+	result := s.conn().Model(&models.DirectoryMetadata{}).Where("drive_id = ? AND path_key = ?", driveID, pathKey).Count(&count)
+	return count > 0, result.Error
 }
 
 func (s *Store) GetFileMetadataByDirPrefix(driveID string, prefixes [2]string) ([]models.FileMetadata, error) {
@@ -220,7 +325,7 @@ func (s *Store) GetDirectoriesByParentPrefixPaged(driveID string, prefixes [2]st
 
 func (s *Store) GetFileMetadatasWoThumbnails(ctx context.Context, limit int) ([]models.FileMetadata, error) {
 	var files []models.FileMetadata
-	result := s.conn().Where("thumbnail_path IS NULL OR thumbnail_path = '' AND is_image = true").Limit(limit).Find(&files)
+	result := s.conn().Where("(thumbnail_path IS NULL OR thumbnail_path = '') AND upload_status = ? AND is_image = true", models.UploadStatusReady).Limit(limit).Find(&files)
 	return files, result.Error
 }
 

@@ -121,6 +121,31 @@ func (dm *DiskManager) CreateDirV2(subFolder, driveId, userId string) error {
 	return nil
 }
 
+// DirExists reports whether relPath is an existing folder in the drive. On local
+// disk the filesystem is the source of truth, so it is what gets stat'd.
+func (dm *DiskManager) DirExists(relPath, driveId, userId string) (bool, error) {
+	hasAccess, err := dm.CheckUserDriveWriteAccess(userId, driveId)
+	if err != nil {
+		return false, err
+	}
+	if !hasAccess {
+		return false, errors.New("user does not have write access to this drive")
+	}
+	drive, err := dm.Store.GetDriveByID(driveId)
+	if err != nil {
+		return false, fmt.Errorf("diskmanager: get drive by id %q: %w", driveId, err)
+	}
+	dirPath := filepath.Join(dm.Home, drive.Slug, relPath)
+	info, err := os.Stat(dirPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, fmt.Errorf("diskmanager: stat dir %q: %w", dirPath, err)
+	}
+	return info.IsDir(), nil
+}
+
 func (dm *DiskManager) DeleteDir(relPath, driveId, userId string) error {
 	hasAccess, err := dm.CheckUserDriveWriteAccess(userId, driveId)
 	if err != nil {

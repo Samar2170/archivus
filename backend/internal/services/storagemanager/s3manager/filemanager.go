@@ -89,6 +89,12 @@ func (s *S3Manager) DownloadFile(fileId string, driveId, userId string) (*os.Fil
 	if err != nil {
 		return nil, nil, fmt.Errorf("s3manager: get file metadata %q: %w", fileId, err)
 	}
+	if md.UploadStatus == models.UploadStatusPending || md.UploadStatus == models.UploadStatusUploading {
+		return nil, nil, fmt.Errorf("s3manager: file %q is still being uploaded", md.Name)
+	}
+	if md.UploadStatus == models.UploadStatusFailed {
+		return nil, nil, fmt.Errorf("s3manager: upload of file %q did not complete", md.Name)
+	}
 	// PathKey = drive.Slug/dir/filename, i.e. the full key in the shared bucket
 	out, err := s.Client.GetObject(context.Background(), s.Client.BucketName, md.PathKey)
 	if err != nil {
@@ -159,7 +165,7 @@ func (s *S3Manager) UploadFileV2(relPath, driveId, userId string, file multipart
 			_ = s.Client.DeleteObject(ctx, s.Client.BucketName, archiveKey)
 			return fmt.Errorf("s3manager: save archived version metadata for %q: %w", archiveKey, err)
 		}
-		if err := s.Client.PutObject(ctx, s.Client.BucketName, pathKey, contentType, fileHeader.Size, file); err != nil {
+		if err := s.Client.PutObjectMultipart(ctx, s.Client.BucketName, pathKey, contentType, file); err != nil {
 			return fmt.Errorf("s3manager: upload %q: %w", pathKey, err)
 		}
 		if err := s.Store.UpdateFileMetadataContent(existing.ID.String(), sizeInMb, contentType); err != nil {
@@ -169,13 +175,134 @@ func (s *S3Manager) UploadFileV2(relPath, driveId, userId string, file multipart
 	}
 
 	// First upload of this key.
-	if err := s.Client.PutObject(ctx, s.Client.BucketName, pathKey, contentType, fileHeader.Size, file); err != nil {
+	if err := s.Client.PutObjectMultipart(ctx, s.Client.BucketName, pathKey, contentType, file); err != nil {
 		return fmt.Errorf("s3manager: upload %q: %w", pathKey, err)
 	}
 	_, err = s.Store.CreateFileMetadataV2(fileHeader.Filename, pathKey, prefix, contentType, driveId, userId, sizeInMb)
 	if err != nil {
 		_ = s.Client.DeleteObject(ctx, s.Client.BucketName, pathKey)
 		return fmt.Errorf("s3manager: save file metadata for %q: %w", pathKey, err)
+	}
+	return nil
+}
+
+// EnqueueChunkedUpload records an assembled chunked upload as a pending file and
+// returns immediately, deferring the slow multipart push to R2 to a background
+// worker (ProcessPendingUploads). This keeps the client's /complete request fast
+// even for multi-hundred-MB files: assembly is local and quick, while the
+// bandwidth-bound upload happens off the request path. Write access is validated
+// up front so an unauthorized caller still fails fast.
+func (s *S3Manager) EnqueueChunkedUpload(relPath, driveId, userId, contentType string, size int64, filename, localPath string) (models.FileMetadata, error) {
+	hasAccess, err := s.CheckUserDriveWriteAccess(userId, driveId)
+	if err != nil {
+		return models.FileMetadata{}, err
+	}
+	if !hasAccess {
+		return models.FileMetadata{}, errors.New("user does not have write access to this drive")
+	}
+	drive, err := s.Store.GetDriveByID(driveId)
+	if err != nil {
+		return models.FileMetadata{}, fmt.Errorf("s3manager: get drive %q: %w", driveId, err)
+	}
+	trimmed := strings.Trim(relPath, "/")
+	var pathKey string
+	if trimmed == "" {
+		pathKey = drive.Slug + "/" + filename
+	} else {
+		pathKey = drive.Slug + "/" + trimmed + "/" + filename
+	}
+	prefix := filepath.Dir(pathKey) + "/"
+	sizeInMb := float64(size) / (1 << 20)
+
+	existing, lookupErr := s.Store.GetFileMetadataByDrivePathKey(driveId, pathKey)
+	if lookupErr != nil && !errors.Is(lookupErr, store.ErrRecordNotFound) {
+		return models.FileMetadata{}, fmt.Errorf("s3manager: lookup existing file %q: %w", pathKey, lookupErr)
+	}
+	if lookupErr == nil {
+		// Overwrite: reuse the existing row so we never have two rows for one key.
+		// Its current bytes stay live in R2 until the worker archives them and
+		// swaps in the new content, so the previous version remains downloadable.
+		if err := s.Store.MarkFileMetadataPending(existing.ID.String(), localPath); err != nil {
+			return models.FileMetadata{}, fmt.Errorf("s3manager: mark %q pending: %w", pathKey, err)
+		}
+		existing.UploadStatus = models.UploadStatusPending
+		existing.PendingSourcePath = localPath
+		return existing, nil
+	}
+	fm, err := s.Store.CreatePendingFileMetadataV2(filename, pathKey, prefix, contentType, driveId, userId, sizeInMb, localPath)
+	if err != nil {
+		return models.FileMetadata{}, fmt.Errorf("s3manager: create pending metadata for %q: %w", pathKey, err)
+	}
+	return fm, nil
+}
+
+// ProcessPendingUploads drains the pending-upload queue: for each file it claims
+// the row (so no other worker touches it), pushes the staged bytes to R2 via a
+// concurrent multipart upload, and marks it ready. Transient failures are
+// retried on a later pass up to models.MaxUploadAttempts, after which the row is
+// marked failed.
+func (s *S3Manager) ProcessPendingUploads(ctx context.Context) error {
+	pending, err := s.Store.GetPendingFileUploads(20)
+	if err != nil {
+		return fmt.Errorf("s3manager: list pending uploads: %w", err)
+	}
+	for _, fm := range pending {
+		claimed, err := s.Store.ClaimPendingUpload(fm.ID.String())
+		if err != nil {
+			return fmt.Errorf("s3manager: claim pending upload %q: %w", fm.ID, err)
+		}
+		if !claimed {
+			continue // another worker got it first
+		}
+		if err := s.finalizePendingUpload(ctx, fm); err != nil {
+			// fm.UploadAttempts reflects the count before this claim incremented it.
+			if fm.UploadAttempts+1 >= models.MaxUploadAttempts {
+				_ = s.Store.MarkFileUploadFailed(fm.ID.String())
+			} else {
+				_ = s.Store.RevertUploadToPending(fm.ID.String())
+			}
+			fmt.Printf("s3manager: finalize pending upload %q failed (attempt %d): %v\n", fm.PathKey, fm.UploadAttempts+1, err)
+		}
+	}
+	return nil
+}
+
+// finalizePendingUpload pushes one staged file to R2. If an object already
+// exists at the key (an overwrite) its current bytes and metadata are archived
+// under a versioned key first, mirroring the synchronous UploadFileV2 path.
+func (s *S3Manager) finalizePendingUpload(ctx context.Context, fm models.FileMetadata) error {
+	f, err := os.Open(fm.PendingSourcePath)
+	if err != nil {
+		return fmt.Errorf("open staged file %q: %w", fm.PendingSourcePath, err)
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return fmt.Errorf("stat staged file %q: %w", fm.PendingSourcePath, err)
+	}
+	sizeInMb := float64(info.Size()) / (1 << 20)
+
+	// Archive an existing object before overwriting it, so no version is lost.
+	if _, headErr := s.Client.HeadObject(ctx, s.Client.BucketName, fm.PathKey); headErr == nil {
+		archiveKey := versionedKey(fm.PathKey)
+		if err := s.Client.CopyObject(ctx, s.Client.BucketName, fm.PathKey, archiveKey); err != nil {
+			return fmt.Errorf("archive previous version of %q: %w", fm.PathKey, err)
+		}
+		archiveName := filepath.Base(archiveKey)
+		if _, err := s.Store.CreateFileMetadataV2(archiveName, archiveKey, fm.Prefix, fm.ContentType, fm.DriveID.String(), fm.UploadedByID.String(), fm.SizeInMb); err != nil {
+			_ = s.Client.DeleteObject(ctx, s.Client.BucketName, archiveKey)
+			return fmt.Errorf("save archived version metadata for %q: %w", archiveKey, err)
+		}
+	}
+
+	if err := s.Client.PutObjectMultipart(ctx, s.Client.BucketName, fm.PathKey, fm.ContentType, f); err != nil {
+		return fmt.Errorf("upload %q: %w", fm.PathKey, err)
+	}
+	if err := s.Store.MarkFileUploadReady(fm.ID.String(), sizeInMb); err != nil {
+		return fmt.Errorf("mark %q ready: %w", fm.PathKey, err)
+	}
+	if err := os.Remove(fm.PendingSourcePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		fmt.Printf("warning: failed to remove staged file %q: %v\n", fm.PendingSourcePath, err)
 	}
 	return nil
 }
@@ -254,6 +381,7 @@ func (s *S3Manager) GetFilesV2(relPath, driveId, userId string, page, pageSize i
 				Size:           f.SizeInMb,
 				Path:           f.PathKey,
 				Thumbnail:      storage_types.ThumbnailURL(f.ThumbnailPath, config.Config.ThumbnailDir),
+				UploadStatus:   f.UploadStatus,
 				NavigationPath: filepath.Join(relPath, f.Name),
 			})
 		}

@@ -5,6 +5,7 @@ import (
 	archivus_constants "archivus/internal/constants"
 	"archivus/internal/handlers"
 	"archivus/internal/services/auth"
+	"archivus/internal/services/chunkupload"
 	"archivus/pkg/response"
 	"log"
 	"net/http"
@@ -36,11 +37,21 @@ func GetServer(authService *auth.AuthService) *http.Server {
 	protected.HandleFunc("/auth/user/info", authHandler.GetUserInfoHandler).Methods(http.MethodGet)
 	protected.HandleFunc("/auth/drive/info", authHandler.GetDriveInfoHandler).Methods(http.MethodGet)
 
-	storageHandler := handlers.NewStorageHandler(authService.StorageManager)
+	chunkManager := chunkupload.NewManager(config.Config.ArchivusHome)
+	storageHandler := handlers.NewStorageHandler(authService.StorageManager, chunkManager)
 	protected.HandleFunc("/storage/folder/create", storageHandler.CreateFolder).Methods(http.MethodPost)
 	protected.HandleFunc("/storage/folder/delete", storageHandler.DeleteFolder).Methods(http.MethodPost)
 
 	protected.HandleFunc("/storage/file/upload", storageHandler.UploadFileHandler).Methods(http.MethodPost)
+
+	// Resumable chunked upload for large files: init a session, stream chunks
+	// (idempotent, so a dropped connection just means re-sending missing chunks),
+	// poll status to resume, then complete to assemble and persist.
+	protected.HandleFunc("/storage/file/upload/chunk/init", storageHandler.InitChunkUploadHandler).Methods(http.MethodPost)
+	protected.HandleFunc("/storage/file/upload/chunk/part", storageHandler.UploadChunkHandler).Methods(http.MethodPost)
+	protected.HandleFunc("/storage/file/upload/chunk/status", storageHandler.ChunkUploadStatusHandler).Methods(http.MethodGet)
+	protected.HandleFunc("/storage/file/upload/chunk/complete", storageHandler.CompleteChunkUploadHandler).Methods(http.MethodPost)
+	protected.HandleFunc("/storage/file/upload/chunk/abort", storageHandler.AbortChunkUploadHandler).Methods(http.MethodPost)
 	protected.HandleFunc("/storage/file/download", storageHandler.DownloadFileHandler).Methods(http.MethodGet)
 	protected.HandleFunc("/storage/file/move", storageHandler.MoveFileHandler).Methods(http.MethodPost)
 	protected.HandleFunc("/storage/file/delete", storageHandler.DeleteFileHandler).Methods(http.MethodPost)

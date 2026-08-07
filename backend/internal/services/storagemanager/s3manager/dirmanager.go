@@ -129,6 +129,33 @@ func (s *S3Manager) CreateDirV2(subFolder, driveId, userId string) error {
 	return nil
 }
 
+// DirExists reports whether relPath is an existing folder in the drive. S3 has
+// no real directories, so the directory metadata rows (what listings are built
+// from) are the source of truth.
+func (s *S3Manager) DirExists(relPath, driveId, userId string) (bool, error) {
+	hasAccess, err := s.CheckUserDriveWriteAccess(userId, driveId)
+	if err != nil {
+		return false, err
+	}
+	if !hasAccess {
+		return false, errors.New("user does not have write access to this drive")
+	}
+	trimmed := strings.Trim(relPath, "/")
+	if trimmed == "" {
+		return true, nil // drive root
+	}
+	drive, err := s.Store.GetDriveByID(driveId)
+	if err != nil {
+		return false, fmt.Errorf("s3manager: get drive %q: %w", driveId, err)
+	}
+	pathKey := drive.Slug + "/" + trimmed
+	exists, err := s.Store.DirectoryExistsByDrivePathKey(drive.ID.String(), pathKey)
+	if err != nil {
+		return false, fmt.Errorf("s3manager: look up directory %q: %w", pathKey, err)
+	}
+	return exists, nil
+}
+
 // s3Key converts a DB relPath (drive.Slug/subpath) to an S3 object key (subpath).
 func s3Key(relPath, driveSlug string) string {
 	return strings.TrimPrefix(relPath, driveSlug+"/")

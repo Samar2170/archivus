@@ -33,6 +33,15 @@
 4. Indexing, photo, and maybe even search indexing service
 6. Docs parse and save content, indexing, search
 7. Thumbnail fix [X]
-8. chunk uploads for syncer, large uploads
+8. chunk uploads for syncer, large uploads 
 9. filter/sort
 10. search
+11. encrypted folders
+12. both s3 and diskmanager working together (maybe)
+13. cold storage mode
+
+
+
+Client arch
+1. saving to local lan machine
+2. syncer client picks up form it and uploads to archivus

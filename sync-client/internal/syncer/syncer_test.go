@@ -62,6 +62,47 @@ func (u *uploadRecorder) count() int {
 	return len(u.uploads)
 }
 
+// folderRecorder stands in for the backend's /storage/folder/create endpoint,
+// which the syncer calls to make a destination exist before sending files to it.
+type folderRecorder struct {
+	mu      sync.Mutex
+	created []string
+	// fail, when set, rejects a create for the given path.
+	fail func(path string) bool
+}
+
+func (f *folderRecorder) handler(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Path    string `json:"path"`
+		DriveId string `json:"driveId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	f.mu.Lock()
+	rejected := f.fail != nil && f.fail(req.Path)
+	if !rejected {
+		f.created = append(f.created, req.Path)
+	}
+	f.mu.Unlock()
+	if rejected {
+		http.Error(w, `{"error":"no such parent"}`, http.StatusBadRequest)
+		return
+	}
+	// The real handler writes nothing on success.
+}
+
+func (f *folderRecorder) register(mux *http.ServeMux) {
+	mux.HandleFunc("/storage/folder/create", f.handler)
+}
+
+func (f *folderRecorder) paths() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.created...)
+}
+
 func newTestSyncer(t *testing.T, serverURL string) *Syncer {
 	t.Helper()
 	return newTestSyncerIn(t, t.TempDir(), serverURL)
@@ -87,13 +128,10 @@ func newTestSyncerIn(t *testing.T, home, serverURL string) *Syncer {
 
 func TestUploadTreeOnlyUploadsChangedFiles(t *testing.T) {
 	rec := &uploadRecorder{}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/storage/file/upload" {
-			rec.handler(w, r)
-			return
-		}
-		http.NotFound(w, r)
-	}))
+	mux := http.NewServeMux()
+	mux.HandleFunc("/storage/file/upload", rec.handler)
+	(&folderRecorder{}).register(mux)
+	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
 	root := t.TempDir()
@@ -184,6 +222,77 @@ func TestUploadIgnoresTouchOnlyChange(t *testing.T) {
 	}
 }
 
+// TestDestinationFoldersAreCreated covers what a nested tree sync needs from the
+// server: it only knows folders that were explicitly created, so every level of
+// a destination has to be made to exist before files are sent to it.
+func TestDestinationFoldersAreCreated(t *testing.T) {
+	rec := &uploadRecorder{}
+	folders := &folderRecorder{}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/storage/file/upload", rec.handler)
+	folders.register(mux)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "deep", "nested", "a.txt"), "alpha")
+	writeFile(t, filepath.Join(root, "deep", "nested", "b.txt"), "bravo")
+
+	s := newTestSyncer(t, srv.URL)
+	ctx := context.Background()
+
+	if _, err := s.UploadPath(ctx, root, "drive-1", "backups", false); err != nil {
+		t.Fatalf("UploadPath: %v", err)
+	}
+	// Every level, parents first — and each one once, however many files it holds.
+	want := []string{"backups", "backups/deep", "backups/deep/nested"}
+	if got := folders.paths(); !equalStrings(got, want) {
+		t.Fatalf("created folders = %v, want %v", got, want)
+	}
+
+	// A run with nothing to upload has no destination to make exist.
+	if _, err := s.UploadPath(ctx, root, "drive-1", "backups", false); err != nil {
+		t.Fatalf("second UploadPath: %v", err)
+	}
+	if got := folders.paths(); !equalStrings(got, want) {
+		t.Fatalf("unchanged run created folders = %v, want no new calls (%v)", got, want)
+	}
+}
+
+// TestFolderCreateFailureFailsTheFile checks that a destination that cannot be
+// created is reported as a failed file rather than uploaded anyway — the upload
+// would otherwise land somewhere no listing can reach.
+func TestFolderCreateFailureFailsTheFile(t *testing.T) {
+	rec := &uploadRecorder{}
+	folders := &folderRecorder{fail: func(path string) bool { return path == "backups/sub" }}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/storage/file/upload", rec.handler)
+	folders.register(mux)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "a.txt"), "alpha")
+	writeFile(t, filepath.Join(root, "sub", "b.txt"), "bravo")
+
+	s := newTestSyncer(t, srv.URL)
+	res, err := s.UploadPath(context.Background(), root, "drive-1", "backups", false)
+	if err != nil {
+		t.Fatalf("UploadPath: %v", err)
+	}
+	if res.Uploaded != 1 || res.Failed != 1 {
+		t.Fatalf("run = %+v, want 1 uploaded (a.txt) and 1 failed (sub/b.txt)", res)
+	}
+	if got := recordedDests(rec); !equalStrings(got, []string{"backups"}) {
+		t.Fatalf("uploaded to %v, want only backups", got)
+	}
+	// The failure must not be recorded as synced, or the file would be skipped
+	// forever once the folder problem is fixed.
+	if _, ok := s.state.Files[filepath.Join(root, "sub", "b.txt")]; ok {
+		t.Error("failed file was recorded in state as uploaded")
+	}
+}
+
 // TestLargeFilesUseChunkedUpload checks the size-based routing: files over the
 // threshold go to the chunk endpoints, smaller ones to the plain upload.
 func TestLargeFilesUseChunkedUpload(t *testing.T) {
@@ -192,6 +301,7 @@ func TestLargeFilesUseChunkedUpload(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/storage/file/upload", rec.handler)
 	cs.register(mux)
+	(&folderRecorder{}).register(mux)
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
@@ -238,6 +348,7 @@ func TestChunkedUploadResumesAcrossRuns(t *testing.T) {
 	cs.failPart = func(index int) bool { return index >= 2 }
 	mux := http.NewServeMux()
 	cs.register(mux)
+	(&folderRecorder{}).register(mux)
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
@@ -320,6 +431,7 @@ func TestStaleChunkSessionIsAborted(t *testing.T) {
 	cs.failPart = func(index int) bool { return index >= 2 }
 	mux := http.NewServeMux()
 	cs.register(mux)
+	(&folderRecorder{}).register(mux)
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 

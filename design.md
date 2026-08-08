@@ -33,7 +33,7 @@
 4. Indexing, photo, and maybe even search indexing service
 6. Docs parse and save content, indexing, search
 7. Thumbnail fix [X]
-8. chunk uploads for syncer, large uploads 
+8. chunk uploads for syncer, large uploads [X]
 9. filter/sort
 10. search
 11. encrypted folders
@@ -45,3 +45,8 @@
 Client arch
 1. saving to local lan machine
 2. syncer client picks up form it and uploads to archivus
+
+#### Syncer architecture changes
+1. Work only when enough CPU and memory available else pause
+2. Create a dashboard to show no. of files in the current dir structure, how many are uploaded, how many are skipped, how many failed
+3. 

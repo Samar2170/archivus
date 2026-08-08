@@ -8,11 +8,19 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
+	"archivus-sync/internal/api"
 	"archivus-sync/internal/config"
 )
 
 const stateFileName = "state.json"
+
+// pendingUploadTTL bounds how long a stored chunked-upload session is trusted.
+// The server never expires sessions on its own, so past this age the client
+// aborts the session instead of resuming it — which is also what keeps
+// abandoned staging directories from accumulating server-side.
+const pendingUploadTTL = 7 * 24 * time.Hour
 
 // fileState records what the client last uploaded for a given local file, so a
 // subsequent run can tell whether the content changed.
@@ -22,9 +30,47 @@ type fileState struct {
 	Checksum string `json:"checksum"`
 }
 
+// pendingUpload records a chunked upload session that was started but not
+// finished, so a later run can resume it instead of re-sending the whole file.
+// The recorded content hash and destination are what make resuming safe: if any
+// of them no longer match the local file, the session describes different bytes
+// and is discarded rather than resumed.
+type pendingUpload struct {
+	UploadID    string `json:"uploadId"`
+	ChunkSize   int64  `json:"chunkSize"`
+	TotalChunks int    `json:"totalChunks"`
+	Size        int64  `json:"size"`
+	Checksum    string `json:"checksum"`
+	DriveID     string `json:"driveId"`
+	FolderPath  string `json:"folderPath"`
+	StartedAt   int64  `json:"startedAt"` // unix seconds
+}
+
+// session converts the record back into the form the API client resumes from.
+func (p pendingUpload) session() api.ChunkUploadSession {
+	return api.ChunkUploadSession{
+		UploadID:    p.UploadID,
+		ChunkSize:   p.ChunkSize,
+		TotalChunks: p.TotalChunks,
+	}
+}
+
+// resumable reports whether the session still describes this exact file going to
+// this exact destination, and is recent enough to be worth trying.
+func (p pendingUpload) resumable(size int64, checksum, driveID, folderPath string, now time.Time) bool {
+	if p.UploadID == "" || p.Size != size || p.Checksum != checksum {
+		return false
+	}
+	if p.DriveID != driveID || p.FolderPath != folderPath {
+		return false
+	}
+	return now.Sub(time.Unix(p.StartedAt, 0)) < pendingUploadTTL
+}
+
 // state is the persisted sync state, keyed by absolute local file path.
 type state struct {
-	Files map[string]fileState `json:"files"`
+	Files   map[string]fileState     `json:"files"`
+	Pending map[string]pendingUpload `json:"pending,omitempty"`
 }
 
 func statePath() (string, error) {
@@ -42,7 +88,7 @@ func loadState() (*state, error) {
 	}
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		return &state{Files: map[string]fileState{}}, nil
+		return newState(), nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("read state %q: %w", path, err)
@@ -54,7 +100,17 @@ func loadState() (*state, error) {
 	if s.Files == nil {
 		s.Files = map[string]fileState{}
 	}
+	if s.Pending == nil {
+		s.Pending = map[string]pendingUpload{}
+	}
 	return &s, nil
+}
+
+func newState() *state {
+	return &state{
+		Files:   map[string]fileState{},
+		Pending: map[string]pendingUpload{},
+	}
 }
 
 func (s *state) save() error {

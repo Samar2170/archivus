@@ -22,6 +22,12 @@ type Client struct {
 	BaseURL string
 	Token   string
 	HTTP    *http.Client
+	// ChunkSize overrides the per-chunk size used by chunked uploads. Zero means
+	// DefaultChunkSize.
+	ChunkSize int64
+	// RetryBackoff overrides the base delay between attempts at the same chunk.
+	// Zero means DefaultRetryBackoff.
+	RetryBackoff time.Duration
 }
 
 // New builds a client for baseURL using the given bearer token.
@@ -132,11 +138,8 @@ func (c *Client) UploadFile(ctx context.Context, driveID, folderPath, localPath 
 		return fmt.Errorf("upload request: %w", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized {
-		return fmt.Errorf("%w: %s", ErrUnauthorized, decodeError(resp))
-	}
-	if resp.StatusCode != http.StatusOK {
-		return decodeError(resp)
+	if err := checkStatus(resp); err != nil {
+		return err
 	}
 	_, _ = io.Copy(io.Discard, resp.Body)
 	return nil
@@ -145,6 +148,30 @@ func (c *Client) UploadFile(ctx context.Context, driveID, folderPath, localPath 
 // ErrUnauthorized is returned when the server rejects the token, so callers can
 // prompt the user to log in again.
 var ErrUnauthorized = fmt.Errorf("unauthorized (token missing, invalid, or expired)")
+
+// statusError carries the HTTP status alongside the decoded message, so callers
+// can react to a specific code (e.g. a 404 meaning an upload session is gone)
+// without re-inspecting the response.
+type statusError struct {
+	code int
+	err  error
+}
+
+func (e *statusError) Error() string { return e.err.Error() }
+func (e *statusError) Unwrap() error { return e.err }
+
+// checkStatus turns a non-OK response into an error, tagging auth failures with
+// ErrUnauthorized so callers can tell "log in again" from "retry later".
+func checkStatus(resp *http.Response) error {
+	if resp.StatusCode == http.StatusOK {
+		return nil
+	}
+	err := decodeError(resp)
+	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized {
+		err = fmt.Errorf("%w: %s", ErrUnauthorized, err)
+	}
+	return &statusError{code: resp.StatusCode, err: err}
+}
 
 // Health pings the backend to verify the URL is reachable.
 func (c *Client) Health(ctx context.Context) error {

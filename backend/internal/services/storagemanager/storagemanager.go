@@ -39,6 +39,12 @@ type StorageManager interface {
 	// and flips them to ready. It is safe to call concurrently: rows are claimed
 	// atomically, so overlapping callers never upload the same file twice.
 	ProcessPendingUploads(ctx context.Context) error
+	// PendingBacklogFull reports whether staged-but-not-yet-persisted uploads
+	// have reached the limit the backend is willing to hold on local disk.
+	// Callers should refuse to stage more work while it is true, so that clients
+	// back off instead of outrunning the drain. Backends that persist
+	// synchronously never have a backlog and always report false.
+	PendingBacklogFull() (bool, error)
 
 	// MoveFile relocates a file into dstFolderRelPath (relative to the drive
 	// root), keeping its name.

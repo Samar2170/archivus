@@ -184,6 +184,27 @@ func (s *Store) GetPendingFileUploads(limit int) ([]models.FileMetadata, error) 
 	return files, result.Error
 }
 
+// PendingUploadBacklogMB returns the total size of uploads staged on local disk
+// waiting to reach the storage backend. Rows in both pending and uploading hold
+// an assembled file, so both count against the staging budget.
+//
+// For an overwrite the row still carries the previous version's size until the
+// new bytes land, so the figure is an estimate rather than an exact byte count
+// of the staging directory.
+func (s *Store) PendingUploadBacklogMB() (float64, error) {
+	var total *float64
+	result := s.conn().Model(&models.FileMetadata{}).
+		Where("upload_status IN ?", []string{models.UploadStatusPending, models.UploadStatusUploading}).
+		Select("SUM(size_in_mb)").Scan(&total)
+	if result.Error != nil {
+		return 0, result.Error
+	}
+	if total == nil {
+		return 0, nil // no matching rows: SUM() is NULL, not 0
+	}
+	return *total, nil
+}
+
 // ClaimPendingUpload atomically transitions a row from pending to uploading and
 // bumps its attempt count. It returns claimed=true only if this call is the one
 // that won the row, so the inline finalizer and the cron recovery job never

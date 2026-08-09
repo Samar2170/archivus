@@ -36,6 +36,23 @@ const (
 	// ChunkStagingDirName is the directory under the archivus home where
 	// in-progress chunked uploads are staged before assembly.
 	ChunkStagingDirName = ".chunks"
+
+	// PendingUploadWorkers is how many staged uploads one drain pushes to object
+	// storage at a time. Each push is itself a concurrent multipart upload, so
+	// the number of in-flight streams is this times that concurrency; raising it
+	// past what the uplink can carry only spreads the same bandwidth thinner.
+	PendingUploadWorkers = 4
+
+	// PendingUploadBatchSize is how many pending rows a drain claims per pass. A
+	// drain keeps taking passes until nothing new turns up, so this bounds how
+	// many rows are held in memory at once, not how many a drain gets through.
+	PendingUploadBatchSize = 20
+
+	// MaxPendingUploadBacklogMB bounds the assembled-but-not-yet-pushed bytes
+	// allowed to sit in local staging. Once the backlog is this large, completing
+	// another chunked upload is refused so clients slow down instead of filling
+	// the disk faster than the workers can drain it.
+	MaxPendingUploadBacklogMB = 20 * 1024 // 20 GB
 )
 
 type ContextKey string

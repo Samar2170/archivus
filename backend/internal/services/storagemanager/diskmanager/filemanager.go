@@ -205,6 +205,12 @@ func (dm *DiskManager) ProcessPendingUploads(ctx context.Context) error {
 	return nil
 }
 
+// PendingBacklogFull is always false for local disk: nothing is ever deferred,
+// so there is no staging backlog that could need clients to slow down.
+func (dm *DiskManager) PendingBacklogFull() (bool, error) {
+	return false, nil
+}
+
 func (dm *DiskManager) GetFilesV2(relPath, driveId, userId string, page, pageSize int) (storage_types.PagedDirEntries, error) {
 	var out storage_types.PagedDirEntries
 	hasAccess, err := dm.CheckUserHasDriveAccess(userId, driveId)

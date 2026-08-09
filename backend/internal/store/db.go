@@ -53,9 +53,18 @@ func (s *Store) getStorageDbFile(dbFile string) string {
 	return filepath.Join(s.ProjectBaseDir, dbFile)
 }
 
+// sqliteParams are appended to the database DSN.
+//
+// WAL lets readers work while a write is in progress, and busy_timeout makes a
+// writer that finds the lock held wait for it instead of failing outright with
+// SQLITE_BUSY. Both matter now that uploads finalize from a pool of workers: the
+// default settings turn ordinary write contention into spurious errors, which
+// for a pending upload means a burnt retry attempt rather than a short wait.
+const sqliteParams = "?_journal_mode=WAL&_busy_timeout=5000"
+
 func (s *Store) Init() error {
 	dbFile := s.getStorageDbFile(archivus_constants.StorageDbFile)
-	db, err := gorm.Open(sqlite.Open(dbFile), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(dbFile+sqliteParams), &gorm.Config{})
 	if err != nil {
 		return err
 	}

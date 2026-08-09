@@ -92,6 +92,17 @@ func Login(ctx context.Context, baseURL, username, password, pin string) (string
 	return out.Token, nil
 }
 
+// CreateFolder creates folderPath in the drive. folderPath uses forward slashes
+// and is relative to the drive root. Creating a folder that already exists is
+// not an error, so callers can make a destination exist without checking first.
+func (c *Client) CreateFolder(ctx context.Context, driveID, folderPath string) error {
+	req := map[string]string{"path": folderPath, "driveId": driveID}
+	if err := c.doJSON(ctx, http.MethodPost, "/storage/folder/create", req, nil); err != nil {
+		return fmt.Errorf("create folder %q: %w", folderPath, err)
+	}
+	return nil
+}
+
 // UploadFile streams localPath to the drive under folderPath. folderPath uses
 // forward slashes and is relative to the drive root ("" means the drive root).
 // The stored filename is the base name of localPath.

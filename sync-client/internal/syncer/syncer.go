@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"archivus-sync/internal/api"
@@ -36,6 +37,9 @@ type Syncer struct {
 	log    *log.Logger
 	// chunkThreshold is chunkUploadThreshold; overridden in tests.
 	chunkThreshold int64
+	// knownFolders remembers destination folders already created on the server,
+	// keyed by drive and drive-relative path. See ensureFolder.
+	knownFolders map[string]bool
 }
 
 // New builds a Syncer from a logged-in config.
@@ -53,6 +57,7 @@ func New(cfg *config.Config, logger *log.Logger) (*Syncer, error) {
 		state:          st,
 		log:            logger,
 		chunkThreshold: chunkUploadThreshold,
+		knownFolders:   map[string]bool{},
 	}, nil
 }
 
@@ -201,6 +206,12 @@ func (s *Syncer) uploadOne(ctx context.Context, absPath string, info os.FileInfo
 		return Result{Skipped: 1}
 	}
 
+	// Only now that the file is definitely being sent is the destination worth
+	// creating; an unchanged tree should not touch the server at all.
+	if err := s.ensureFolder(ctx, driveID, folderPath); err != nil {
+		s.log.Printf("skip %q: destination folder /%s: %v", absPath, folderPath, err)
+		return Result{Failed: 1}
+	}
 	if err := s.upload(ctx, absPath, info, driveID, folderPath, sum); err != nil {
 		s.log.Printf("upload %q -> /%s: %v", absPath, folderPath, err)
 		return Result{Failed: 1}
@@ -212,6 +223,38 @@ func (s *Syncer) uploadOne(ctx context.Context, absPath string, info os.FileInfo
 	}
 	s.log.Printf("uploaded %q -> %s/%s", absPath, driveID, dest)
 	return Result{Uploaded: 1}
+}
+
+// ensureFolder makes folderPath exist in the drive, creating every level of it
+// that the server does not already have.
+//
+// The backend builds its folder listing from explicit create calls, not from the
+// keys files are uploaded under, so a destination that only exists locally is
+// unknown to it: a chunked upload is rejected outright at init, and a plain
+// upload lands at a key no listing can reach. Each level is created in turn
+// because the local-disk backend records only the leaf of a create, which would
+// otherwise leave the intermediate folders of a nested tree unlistable.
+//
+// Creates are idempotent, and what has been created is cached for the life of
+// the Syncer, so the steady-state cost is one call per folder that actually
+// receives a file.
+func (s *Syncer) ensureFolder(ctx context.Context, driveID, folderPath string) error {
+	if folderPath == "" {
+		return nil // the drive root always exists
+	}
+	segments := strings.Split(folderPath, "/")
+	for i := range segments {
+		sub := strings.Join(segments[:i+1], "/")
+		key := driveID + "\x00" + sub
+		if s.knownFolders[key] {
+			continue
+		}
+		if err := s.client.CreateFolder(ctx, driveID, sub); err != nil {
+			return err
+		}
+		s.knownFolders[key] = true
+	}
+	return nil
 }
 
 // upload sends one file, choosing between a single multipart POST and the

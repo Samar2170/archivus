@@ -107,6 +107,19 @@ func (dm *DiskManager) CreateDirV2(subFolder, driveId, userId string) error {
 	}
 	pathKey := filepath.Join(dm.Home, drive.Slug, subFolder)
 	prefix := filepath.Dir(pathKey)
+	// Creating a folder that already exists is a no-op rather than an error:
+	// clients (the sync client in particular) make a destination exist without
+	// checking first, and nothing in the schema would stop a second insert from
+	// producing a duplicate row that then shows up twice in listings. Checked
+	// before MkdirAll so an existing directory is never a candidate for the
+	// cleanup below.
+	exists, err := dm.Store.DirectoryExistsByDrivePathKey(drive.ID.String(), pathKey)
+	if err != nil {
+		return fmt.Errorf("diskmanager: look up directory %q: %w", pathKey, err)
+	}
+	if exists {
+		return nil
+	}
 	if err := os.MkdirAll(pathKey, 0755); err != nil {
 		return fmt.Errorf("diskmanager: create dir %q: %w", pathKey, err)
 	}

@@ -2,6 +2,7 @@ package s3manager
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -55,31 +56,33 @@ func statusOf(t *testing.T, m *S3Manager, id string) string {
 	return fm.UploadStatus
 }
 
-// TestClaimPendingBatchSkipsRowsAlreadyTried covers the rule that keeps a drain
+// TestNextPendingBatchSkipsRowsAlreadyTried covers the rule that keeps a drain
 // from eating a row's whole retry budget: a failure puts the row back to
-// pending, and the very next pass of the same drain must leave it alone.
-func TestClaimPendingBatchSkipsRowsAlreadyTried(t *testing.T) {
+// pending, and the very next pass of the same drain must leave it alone. It is
+// also what terminates the drain loop.
+func TestNextPendingBatchSkipsRowsAlreadyTried(t *testing.T) {
 	m := newTestManager(t)
 	a := addPending(t, m, "a.bin", 10)
 	addPending(t, m, "b.bin", 20)
 
 	attempted := map[string]bool{}
-	claimed, err := m.claimPendingBatch(attempted)
+	batch, err := m.nextPendingBatch(attempted)
 	if err != nil {
-		t.Fatalf("claimPendingBatch: %v", err)
+		t.Fatalf("nextPendingBatch: %v", err)
 	}
-	if len(claimed) != 2 {
-		t.Fatalf("claimed %d rows, want 2", len(claimed))
+	if len(batch) != 2 {
+		t.Fatalf("batch has %d rows, want 2", len(batch))
 	}
-	// Claiming takes a row out of the queue for everyone else.
-	for _, fm := range claimed {
-		if got := statusOf(t, m, fm.ID.String()); got != models.UploadStatusUploading {
-			t.Errorf("row %s status = %q, want uploading", fm.Name, got)
+	// Handing a row to a worker must not itself move it out of pending: the
+	// worker claims it, and until then the row still counts as queued.
+	for _, fm := range batch {
+		if got := statusOf(t, m, fm.ID.String()); got != models.UploadStatusPending {
+			t.Errorf("row %s status = %q before any worker claimed it, want pending", fm.Name, got)
 		}
 	}
 
-	if again, err := m.claimPendingBatch(attempted); err != nil || len(again) != 0 {
-		t.Fatalf("second pass claimed %d rows (err %v), want 0", len(again), err)
+	if again, err := m.nextPendingBatch(attempted); err != nil || len(again) != 0 {
+		t.Fatalf("second pass returned %d rows (err %v), want 0", len(again), err)
 	}
 
 	// A row handed back after a transient failure stays untouched for the rest
@@ -87,47 +90,79 @@ func TestClaimPendingBatchSkipsRowsAlreadyTried(t *testing.T) {
 	if err := m.Store.RevertUploadToPending(a.ID.String()); err != nil {
 		t.Fatalf("RevertUploadToPending: %v", err)
 	}
-	if third, err := m.claimPendingBatch(attempted); err != nil || len(third) != 0 {
-		t.Fatalf("pass after revert claimed %d rows (err %v), want 0", len(third), err)
+	if third, err := m.nextPendingBatch(attempted); err != nil || len(third) != 0 {
+		t.Fatalf("pass after revert returned %d rows (err %v), want 0", len(third), err)
 	}
 
 	// ...but a later drain picks it up again.
-	fresh, err := m.claimPendingBatch(map[string]bool{})
+	fresh, err := m.nextPendingBatch(map[string]bool{})
 	if err != nil {
 		t.Fatalf("fresh drain: %v", err)
 	}
-	if len(fresh) != 1 || fresh[0].ID != a.ID {
-		t.Fatalf("fresh drain claimed %+v, want just a.bin", fresh)
+	if len(fresh) != 2 {
+		t.Fatalf("fresh drain saw %d rows, want both back in the queue", len(fresh))
 	}
 }
 
-// TestUploadClaimedRevertsOnCancellation checks the shutdown path: rows this
-// process claimed but never got to must go back to the queue, not sit in
-// "uploading" with no owner and no worker coming for them.
+// TestUploadBatchClaimsNothingWhenCancelled is the shutdown path: a drain that
+// is already cancelled must leave every row pending rather than claiming rows it
+// will not upload and stranding them in "uploading" with no owner.
 //
-// It doubles as the assertion that a cancelled drain starts no new upload —
+// It doubles as the assertion that a cancelled drain starts no upload at all —
 // Client is nil, so any attempt to reach object storage crashes the run.
-func TestUploadClaimedRevertsOnCancellation(t *testing.T) {
+func TestUploadBatchClaimsNothingWhenCancelled(t *testing.T) {
 	m := newTestManager(t)
 	addPending(t, m, "a.bin", 1)
 	addPending(t, m, "b.bin", 1)
 
-	claimed, err := m.claimPendingBatch(map[string]bool{})
+	batch, err := m.nextPendingBatch(map[string]bool{})
 	if err != nil {
-		t.Fatalf("claimPendingBatch: %v", err)
+		t.Fatalf("nextPendingBatch: %v", err)
 	}
-	if len(claimed) != 2 {
-		t.Fatalf("claimed %d rows, want 2", len(claimed))
+	if len(batch) != 2 {
+		t.Fatalf("batch has %d rows, want 2", len(batch))
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	m.uploadClaimed(ctx, claimed)
+	m.uploadBatch(ctx, batch)
 
-	for _, fm := range claimed {
+	for _, fm := range batch {
 		if got := statusOf(t, m, fm.ID.String()); got != models.UploadStatusPending {
 			t.Errorf("row %s status = %q after cancellation, want pending", fm.Name, got)
 		}
+	}
+}
+
+// TestUploadBatchClaimsOnlyWhatItWorksOn is the observability property the batch
+// shape has to preserve: while a drain runs, "uploading" means a file a worker
+// is actually pushing. Claiming a whole batch up front would light up every row
+// at once and, on a hard crash, strand all of them instead of a handful.
+func TestUploadBatchClaimsOnlyWhatItWorksOn(t *testing.T) {
+	m := newTestManager(t)
+	const queued = archivus_constants.PendingUploadWorkers * 3
+	for i := range queued {
+		addPending(t, m, fmt.Sprintf("f%02d.bin", i), 1)
+	}
+
+	batch, err := m.nextPendingBatch(map[string]bool{})
+	if err != nil {
+		t.Fatalf("nextPendingBatch: %v", err)
+	}
+	if len(batch) != queued {
+		t.Fatalf("batch has %d rows, want %d", len(batch), queued)
+	}
+
+	// Nothing is claimed before a worker picks the row up, so the whole batch is
+	// still pending at dispatch time.
+	uploading := 0
+	for _, fm := range batch {
+		if statusOf(t, m, fm.ID.String()) == models.UploadStatusUploading {
+			uploading++
+		}
+	}
+	if uploading != 0 {
+		t.Errorf("%d rows already marked uploading at dispatch, want 0", uploading)
 	}
 }
 
@@ -157,8 +192,14 @@ func TestPendingBacklogFull(t *testing.T) {
 
 	// Rows being uploaded still hold their staged bytes on disk, so they have to
 	// keep counting against the budget.
-	if _, err := m.claimPendingBatch(map[string]bool{}); err != nil {
-		t.Fatalf("claimPendingBatch: %v", err)
+	batch, err := m.nextPendingBatch(map[string]bool{})
+	if err != nil {
+		t.Fatalf("nextPendingBatch: %v", err)
+	}
+	for _, fm := range batch {
+		if _, err := m.Store.ClaimPendingUpload(fm.ID.String()); err != nil {
+			t.Fatalf("ClaimPendingUpload: %v", err)
+		}
 	}
 	if full, err := m.PendingBacklogFull(); err != nil || !full {
 		t.Fatalf("with rows in flight = %v (err %v), want still full", full, err)

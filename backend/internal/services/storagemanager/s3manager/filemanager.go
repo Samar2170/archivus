@@ -275,71 +275,77 @@ func (s *S3Manager) ProcessPendingUploads(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		claimed, err := s.claimPendingBatch(attempted)
+		batch, err := s.nextPendingBatch(attempted)
 		if err != nil {
 			return err
 		}
-		if len(claimed) == 0 {
+		if len(batch) == 0 {
 			return nil
 		}
-		s.uploadClaimed(ctx, claimed)
+		s.uploadBatch(ctx, batch)
 	}
 }
 
-// claimPendingBatch takes the next batch of pending rows and returns the ones
-// this process won.
+// nextPendingBatch returns the next candidate rows for this drain to work on.
 //
 // Rows already tried in this drain are skipped: a transient failure puts a row
 // straight back to pending, and picking it up again on the very next pass would
 // spend its whole retry budget inside one drain instead of across the retries
-// the schedule is meant to spread out.
-func (s *S3Manager) claimPendingBatch(attempted map[string]bool) ([]models.FileMetadata, error) {
+// the schedule is meant to spread out. Since a candidate is never handed to more
+// than one worker, this is also what makes the loop terminate.
+func (s *S3Manager) nextPendingBatch(attempted map[string]bool) ([]models.FileMetadata, error) {
 	pending, err := s.Store.GetPendingFileUploads(archivus_constants.PendingUploadBatchSize)
 	if err != nil {
 		return nil, fmt.Errorf("s3manager: list pending uploads: %w", err)
 	}
-	var claimed []models.FileMetadata
+	var batch []models.FileMetadata
 	for _, fm := range pending {
 		id := fm.ID.String()
 		if attempted[id] {
 			continue
 		}
 		attempted[id] = true
-		won, err := s.Store.ClaimPendingUpload(id)
-		if err != nil {
-			return nil, fmt.Errorf("s3manager: claim pending upload %q: %w", id, err)
-		}
-		if !won {
-			continue // another worker got it first
-		}
-		claimed = append(claimed, fm)
+		batch = append(batch, fm)
 	}
-	return claimed, nil
+	return batch, nil
 }
 
-// uploadClaimed pushes a batch of claimed rows concurrently and returns once
-// they are all resolved. Each row is independent and records its own outcome, so
-// one failure never holds up or cancels the rest.
-func (s *S3Manager) uploadClaimed(ctx context.Context, claimed []models.FileMetadata) {
-	// Buffered to the full batch so dispatch cannot block: a worker that stops
-	// pulling must never strand rows in "uploading" with nobody owning them.
-	jobs := make(chan models.FileMetadata, len(claimed))
-	for _, fm := range claimed {
+// uploadBatch pushes a batch of candidate rows through the worker pool and
+// returns once they are all resolved. Each row is independent and records its
+// own outcome, so one failure never holds up or cancels the rest.
+//
+// Each row is claimed by the worker that is about to upload it, not up front by
+// the dispatcher. That keeps "uploading" meaning a file somebody is actually
+// pushing — which is what makes the status readable while a drain runs — and
+// caps what a hard crash can strand at the number of workers rather than a whole
+// batch.
+func (s *S3Manager) uploadBatch(ctx context.Context, batch []models.FileMetadata) {
+	// Buffered to the full batch so dispatch never blocks on a worker.
+	jobs := make(chan models.FileMetadata, len(batch))
+	for _, fm := range batch {
 		jobs <- fm
 	}
 	close(jobs)
 
 	var wg sync.WaitGroup
-	for range min(archivus_constants.PendingUploadWorkers, len(claimed)) {
+	for range min(archivus_constants.PendingUploadWorkers, len(batch)) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for fm := range jobs {
 				if ctx.Err() != nil {
-					// Shutting down: hand the row back rather than leaving it
-					// stuck in "uploading" for a restart to puzzle over.
-					_ = s.Store.RevertUploadToPending(fm.ID.String())
+					// Shutting down. Nothing is claimed yet, so the remaining
+					// rows are simply left pending for the next run.
+					return
+				}
+				won, err := s.Store.ClaimPendingUpload(fm.ID.String())
+				if err != nil {
+					log.Error().Err(err).Str("pathKey", fm.PathKey).
+						Msg("s3manager: claim pending upload failed")
 					continue
+				}
+				if !won {
+					continue // another process got it first
 				}
 				s.finalizeClaimed(ctx, fm)
 			}

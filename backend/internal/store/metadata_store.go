@@ -184,6 +184,22 @@ func (s *Store) GetPendingFileUploads(limit int) ([]models.FileMetadata, error) 
 	return files, result.Error
 }
 
+// ReferencedPendingSourcePaths returns every staging path a live file row still
+// points at, whatever its upload status — failed rows keep their pointer for
+// diagnostics and count too. The chunk-staging GC uses this as its keep-list, so
+// the query is deliberately broad: wrongly keeping a file costs disk until the
+// row goes away, wrongly deleting one loses an upload.
+//
+// Soft-deleted rows are excluded on purpose. A file deleted while its bytes were
+// still staged is not coming back, so its staging is genuinely garbage.
+func (s *Store) ReferencedPendingSourcePaths() ([]string, error) {
+	var paths []string
+	result := s.conn().Model(&models.FileMetadata{}).
+		Where("pending_source_path <> ''").
+		Pluck("pending_source_path", &paths)
+	return paths, result.Error
+}
+
 // PendingUploadBacklogMB returns the total size of uploads staged on local disk
 // waiting to reach the storage backend. Rows in both pending and uploading hold
 // an assembled file, so both count against the staging budget.

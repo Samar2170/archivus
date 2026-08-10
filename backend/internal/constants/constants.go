@@ -1,5 +1,7 @@
 package archivus_constants
 
+import "time"
+
 const (
 	UserId            = "userId"
 	UserIdKey         = "userId"
@@ -36,6 +38,21 @@ const (
 	// ChunkStagingDirName is the directory under the archivus home where
 	// in-progress chunked uploads are staged before assembly.
 	ChunkStagingDirName = ".chunks"
+
+	// ChunkSessionTTL is how long an unfinished chunked upload session is kept
+	// before the staging GC reclaims it.
+	//
+	// It is deliberately longer than the sync client's own resume window: a
+	// client that comes back aborts its dead sessions itself, which is the clean
+	// path, and the GC only has to cover clients that never return at all (lost
+	// state file, reinstalled machine, abandoned upload).
+	ChunkSessionTTL = 8 * 24 * time.Hour
+
+	// AssembledUploadTTL is the grace period before an assembled file that no
+	// file row points at is treated as garbage. Assembling the file and creating
+	// the row that claims it are not atomic, so this only has to be long enough
+	// to cover that gap; the reference check does the real work.
+	AssembledUploadTTL = 24 * time.Hour
 
 	// PendingUploadWorkers is how many staged uploads one drain pushes to object
 	// storage at a time. Each push is itself a concurrent multipart upload, so

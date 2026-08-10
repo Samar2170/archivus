@@ -2,6 +2,7 @@ package main
 
 import (
 	"archivus/internal/config"
+	"archivus/internal/services/chunkupload"
 	"archivus/internal/services/oculus"
 	"archivus/internal/services/storagemanager"
 	"archivus/internal/services/storagemanager/diskmanager"
@@ -13,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/akamensky/argparse"
 	"github.com/robfig/cron/v3"
@@ -67,6 +69,13 @@ func StartScheduler(ctx context.Context, s *store.Store) (*cron.Cron, error) {
 			fn: func() {
 				log.Info().Msg("cron: marking image files")
 				runMarkImages(s)
+			},
+		},
+		{
+			name: "purge-chunk-staging",
+			spec: "0 15 * * * *", // hourly at HH:15
+			fn: func() {
+				runPurgeChunkStaging(s)
 			},
 		},
 	}
@@ -154,6 +163,36 @@ func runPurgeRecycleBin(ctx context.Context, s *store.Store) {
 	}
 }
 
+// runPurgeChunkStaging reclaims chunk staging that no upload is coming back
+// for. It is the only thing on the server that does: a client which abandons an
+// upload and never returns would otherwise leave its chunks on disk forever.
+//
+// The keep-list has to come from the database, because an assembled file is
+// owned by whichever row points at it until the bytes are persisted.
+func runPurgeChunkStaging(s *store.Store) {
+	paths, err := s.ReferencedPendingSourcePaths()
+	if err != nil {
+		// Without the keep-list every assembled file looks unreferenced, so the
+		// only safe move is to skip this pass entirely.
+		log.Error().Err(err).Msg("cron: cannot list referenced staging paths; skipping chunk staging purge")
+		return
+	}
+	referenced := make(map[string]bool, len(paths))
+	for _, p := range paths {
+		referenced[p] = true
+	}
+
+	swept, err := chunkupload.NewManager(config.Config.ArchivusHome).PurgeStale(time.Now(), referenced)
+	if !swept.Empty() {
+		log.Info().Int("sessions", swept.Sessions).Int("assembled", swept.Assembled).
+			Msg("cron: purged stale chunk staging")
+	}
+	if err != nil {
+		// Partial progress is normal here; the sweep keeps going past a bad entry.
+		log.Error().Err(err).Msg("cron: chunk staging purge did not complete cleanly")
+	}
+}
+
 func runMarkImages(s *store.Store) {
 	service := oculus.NewService(s)
 	if err := service.MarkImages(); err != nil {
@@ -187,6 +226,7 @@ func main() {
 	thumbnailsCmd := parser.NewCommand("thumbnails", "Generate pending thumbnails once and exit")
 	purgeCmd := parser.NewCommand("purge-recycle-bin", "Purge expired recycle bin items once and exit")
 	markImagesCmd := parser.NewCommand("mark-images", "Mark image files once and exit")
+	purgeChunksCmd := parser.NewCommand("purge-chunk-staging", "Reclaim abandoned chunk upload staging once and exit")
 
 	err = parser.Parse(os.Args)
 	if err != nil {
@@ -226,6 +266,9 @@ func main() {
 	case markImagesCmd.Happened():
 		log.Info().Msg("running image marking")
 		runMarkImages(s)
+	case purgeChunksCmd.Happened():
+		log.Info().Msg("running chunk staging purge")
+		runPurgeChunkStaging(s)
 	default:
 		// No subcommand given: print usage.
 		print(parser.Usage(nil))

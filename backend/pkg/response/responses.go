@@ -3,6 +3,7 @@ package response
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 )
 
 func JSONResponse(w http.ResponseWriter, data interface{}) {
@@ -70,6 +71,21 @@ func MethodNotAllowedResponse(w http.ResponseWriter, err string) {
 	w.WriteHeader(http.StatusMethodNotAllowed)
 	json.NewEncoder(w).Encode(map[string]string{
 		"message": "Method Not Allowed",
+		"error":   err,
+	})
+}
+
+// ServiceUnavailableResponse reports that the server is temporarily unable to
+// take the request and that retrying later is expected to work. retryAfter is
+// advertised to the client in the Retry-After header; pass 0 to omit it.
+func ServiceUnavailableResponse(w http.ResponseWriter, err string, retryAfter int) {
+	w.Header().Set("Content-Type", "application/json")
+	if retryAfter > 0 {
+		w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
+	}
+	w.WriteHeader(http.StatusServiceUnavailable)
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": "Service Unavailable",
 		"error":   err,
 	})
 }

@@ -2,6 +2,7 @@ package s3manager
 
 import (
 	"archivus/internal/config"
+	archivus_constants "archivus/internal/constants"
 	"archivus/internal/models"
 	storage_types "archivus/internal/services/storagemanager/types"
 	"archivus/internal/store"
@@ -13,7 +14,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
+
+	"github.com/rs/zerolog/log"
 )
 
 func (s *S3Manager) UploadFile(relPath, driveId, userId string, file multipart.File, fileHeader *multipart.FileHeader) error {
@@ -236,35 +241,147 @@ func (s *S3Manager) EnqueueChunkedUpload(relPath, driveId, userId, contentType s
 	return fm, nil
 }
 
-// ProcessPendingUploads drains the pending-upload queue: for each file it claims
-// the row (so no other worker touches it), pushes the staged bytes to R2 via a
-// concurrent multipart upload, and marks it ready. Transient failures are
-// retried on a later pass up to models.MaxUploadAttempts, after which the row is
-// marked failed.
+// pendingDrainRunning keeps one process to a single drain at a time. Every
+// /complete kicks off a drain and the cron fires one every 30 seconds, so
+// without this the worker pools would stack and the real concurrency limit
+// would be however many callers happened to arrive at once.
+//
+// It is package-level rather than a field because callers build a fresh
+// S3Manager per invocation (see cmd/celery), which would make an instance flag
+// guard nothing. Correctness across processes — the API and the cron worker are
+// separate binaries — rests on ClaimPendingUpload being atomic, not on this;
+// all this bounds is how much work one process takes on.
+var pendingDrainRunning atomic.Bool
+
+// ProcessPendingUploads drains the pending-upload queue: it claims rows (so no
+// other worker touches them), pushes the staged bytes to R2 through a pool of
+// concurrent workers, and marks each one ready. Transient failures go back to
+// the queue for a later pass, up to models.MaxUploadAttempts, after which the
+// row is marked failed.
+//
+// It keeps taking passes until one turns up nothing new, because stopping after
+// a single batch would cap throughput at PendingUploadBatchSize per cron tick no
+// matter how many workers were idle.
 func (s *S3Manager) ProcessPendingUploads(ctx context.Context) error {
-	pending, err := s.Store.GetPendingFileUploads(20)
-	if err != nil {
-		return fmt.Errorf("s3manager: list pending uploads: %w", err)
+	if !pendingDrainRunning.CompareAndSwap(false, true) {
+		// A drain is already going and re-queries as it works, so it will pick
+		// up whatever this call was going to handle.
+		return nil
 	}
-	for _, fm := range pending {
-		claimed, err := s.Store.ClaimPendingUpload(fm.ID.String())
+	defer pendingDrainRunning.Store(false)
+
+	attempted := make(map[string]bool)
+	for {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		batch, err := s.nextPendingBatch(attempted)
 		if err != nil {
-			return fmt.Errorf("s3manager: claim pending upload %q: %w", fm.ID, err)
+			return err
 		}
-		if !claimed {
-			continue // another worker got it first
+		if len(batch) == 0 {
+			return nil
 		}
-		if err := s.finalizePendingUpload(ctx, fm); err != nil {
-			// fm.UploadAttempts reflects the count before this claim incremented it.
-			if fm.UploadAttempts+1 >= models.MaxUploadAttempts {
-				_ = s.Store.MarkFileUploadFailed(fm.ID.String())
-			} else {
-				_ = s.Store.RevertUploadToPending(fm.ID.String())
-			}
-			fmt.Printf("s3manager: finalize pending upload %q failed (attempt %d): %v\n", fm.PathKey, fm.UploadAttempts+1, err)
-		}
+		s.uploadBatch(ctx, batch)
 	}
-	return nil
+}
+
+// nextPendingBatch returns the next candidate rows for this drain to work on.
+//
+// Rows already tried in this drain are skipped: a transient failure puts a row
+// straight back to pending, and picking it up again on the very next pass would
+// spend its whole retry budget inside one drain instead of across the retries
+// the schedule is meant to spread out. Since a candidate is never handed to more
+// than one worker, this is also what makes the loop terminate.
+func (s *S3Manager) nextPendingBatch(attempted map[string]bool) ([]models.FileMetadata, error) {
+	pending, err := s.Store.GetPendingFileUploads(archivus_constants.PendingUploadBatchSize)
+	if err != nil {
+		return nil, fmt.Errorf("s3manager: list pending uploads: %w", err)
+	}
+	var batch []models.FileMetadata
+	for _, fm := range pending {
+		id := fm.ID.String()
+		if attempted[id] {
+			continue
+		}
+		attempted[id] = true
+		batch = append(batch, fm)
+	}
+	return batch, nil
+}
+
+// uploadBatch pushes a batch of candidate rows through the worker pool and
+// returns once they are all resolved. Each row is independent and records its
+// own outcome, so one failure never holds up or cancels the rest.
+//
+// Each row is claimed by the worker that is about to upload it, not up front by
+// the dispatcher. That keeps "uploading" meaning a file somebody is actually
+// pushing — which is what makes the status readable while a drain runs — and
+// caps what a hard crash can strand at the number of workers rather than a whole
+// batch.
+func (s *S3Manager) uploadBatch(ctx context.Context, batch []models.FileMetadata) {
+	// Buffered to the full batch so dispatch never blocks on a worker.
+	jobs := make(chan models.FileMetadata, len(batch))
+	for _, fm := range batch {
+		jobs <- fm
+	}
+	close(jobs)
+
+	var wg sync.WaitGroup
+	for range min(archivus_constants.PendingUploadWorkers, len(batch)) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for fm := range jobs {
+				if ctx.Err() != nil {
+					// Shutting down. Nothing is claimed yet, so the remaining
+					// rows are simply left pending for the next run.
+					return
+				}
+				won, err := s.Store.ClaimPendingUpload(fm.ID.String())
+				if err != nil {
+					log.Error().Err(err).Str("pathKey", fm.PathKey).
+						Msg("s3manager: claim pending upload failed")
+					continue
+				}
+				if !won {
+					continue // another process got it first
+				}
+				s.finalizeClaimed(ctx, fm)
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+// finalizeClaimed pushes one claimed row and records how it went: ready on
+// success, back to pending while retries remain, failed once they run out.
+func (s *S3Manager) finalizeClaimed(ctx context.Context, fm models.FileMetadata) {
+	err := s.finalizePendingUpload(ctx, fm)
+	if err == nil {
+		return
+	}
+	// fm.UploadAttempts reflects the count before this claim incremented it.
+	attempt := fm.UploadAttempts + 1
+	if attempt >= models.MaxUploadAttempts {
+		_ = s.Store.MarkFileUploadFailed(fm.ID.String())
+	} else {
+		_ = s.Store.RevertUploadToPending(fm.ID.String())
+	}
+	log.Error().Err(err).Str("pathKey", fm.PathKey).Int("attempt", attempt).
+		Msg("s3manager: finalize pending upload failed")
+}
+
+// PendingBacklogFull reports whether the staging area is holding as much
+// not-yet-pushed data as it is allowed to. Upload paths check it before
+// assembling another file so that clients are told to slow down rather than
+// filling the disk faster than the workers drain it.
+func (s *S3Manager) PendingBacklogFull() (bool, error) {
+	backlogMB, err := s.Store.PendingUploadBacklogMB()
+	if err != nil {
+		return false, fmt.Errorf("s3manager: measure pending upload backlog: %w", err)
+	}
+	return backlogMB >= archivus_constants.MaxPendingUploadBacklogMB, nil
 }
 
 // finalizePendingUpload pushes one staged file to R2. If an object already

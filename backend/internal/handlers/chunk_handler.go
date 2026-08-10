@@ -26,6 +26,27 @@ import (
 // and re-sends only those before completing. Each call is scoped to the calling
 // user: a session can only be touched by the user who created it.
 
+// backlogRetryAfterSeconds is how long a client is told to wait before retrying
+// an upload that was refused because the staging backlog is full.
+const backlogRetryAfterSeconds = 60
+
+// rejectIfBacklogFull writes a 503 and returns true when the storage backend is
+// already holding as much staged-but-unpersisted data as it allows. Upload paths
+// call it before staging more bytes, so that a drain falling behind pushes back
+// on clients instead of letting the staging disk fill up.
+func (h *StorageHandler) rejectIfBacklogFull(w http.ResponseWriter) bool {
+	full, err := h.service.PendingBacklogFull()
+	if err != nil {
+		response.InternalServerErrorResponse(w, err.Error())
+		return true
+	}
+	if full {
+		response.ServiceUnavailableResponse(w, "upload backlog is full; retry later", backlogRetryAfterSeconds)
+		return true
+	}
+	return false
+}
+
 // loadOwnedSession fetches the session for uploadId and verifies it belongs to
 // userID. On any failure it writes the appropriate HTTP response and returns
 // ok=false, so callers can simply `if !ok { return }`.
@@ -79,6 +100,12 @@ func (h *StorageHandler) InitChunkUploadHandler(w http.ResponseWriter, r *http.R
 	}
 	if req.Size > archivus_constants.MaxUploadSize {
 		response.BadRequestResponse(w, "file exceeds maximum upload size")
+		return
+	}
+	// Turn the client away before it spends bandwidth on chunks that /complete
+	// would only refuse. The backlog can still fill during a long upload, so
+	// this is the courtesy check and the one in /complete is the real guard.
+	if h.rejectIfBacklogFull(w) {
 		return
 	}
 	// Reject an unknown destination folder now rather than after the client has
@@ -209,6 +236,13 @@ func (h *StorageHandler) CompleteChunkUploadHandler(w http.ResponseWriter, r *ht
 	}
 	sess, ok := h.loadOwnedSession(w, req.UploadId, userID)
 	if !ok {
+		return
+	}
+	// Refuse before assembling: assembly puts a second full copy of the file on
+	// disk, which is the last thing a backed-up staging area needs. The session
+	// and its chunks are left untouched, so the client can retry /complete once
+	// the queue drains without re-sending anything.
+	if h.rejectIfBacklogFull(w) {
 		return
 	}
 

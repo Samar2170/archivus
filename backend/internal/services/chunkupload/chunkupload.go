@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"golang.org/x/sys/unix"
 )
 
 const manifestFileName = "manifest.json"
@@ -31,6 +32,13 @@ const assembledPrefix = "assembled-"
 
 // ErrSessionNotFound is returned when an uploadId does not match a live session.
 var ErrSessionNotFound = errors.New("chunkupload: session not found")
+
+// ErrInsufficientDiskSpace is returned when staging a chunk or assembling a file
+// would push the staging filesystem below MinStageHeadroomBytes of free space.
+// Callers can surface it as a clean "please free up space / retry later" rather
+// than letting the write die on an opaque ENOSPC error after half the bytes have
+// landed.
+var ErrInsufficientDiskSpace = errors.New("chunkupload: insufficient disk space for staged upload")
 
 // Session is the persisted description of an in-progress chunked upload. It is
 // written to the session's staging directory as manifest.json at init time and
@@ -63,6 +71,55 @@ func NewManager(archivusHome string) *Manager {
 	}
 }
 
+// ensureStagingRoot makes sure the staging directory exists so filesystem
+// headroom can be measured against it. It is a no-op once the directory is
+// there, and it reports the error if the directory cannot even be created (a
+// signal that the archive's parent filesystem is unhealthy).
+func (m *Manager) ensureStagingRoot() error {
+	if err := os.MkdirAll(m.stagingRoot, 0o755); err != nil {
+		return fmt.Errorf("chunkupload: create staging root: %w", err)
+	}
+	return nil
+}
+
+// freeBytes returns the free space available on the filesystem that backs the
+// staging root, in bytes. It is the monitored disk-headroom precondition every
+// staging write is checked against.
+func (m *Manager) freeBytes() (uint64, error) {
+	if err := m.ensureStagingRoot(); err != nil {
+		return 0, err
+	}
+	var st unix.Statfs_t
+	if err := unix.Statfs(m.stagingRoot, &st); err != nil {
+		return 0, fmt.Errorf("chunkupload: statfs staging root %q: %w", m.stagingRoot, err)
+	}
+	return st.Bavail * uint64(st.Bsize), nil
+}
+
+// HeadroomBytes reports how many free bytes the staging filesystem currently
+// has. It is exposed so operators can monitor it alongside the pending-file
+// backlog: assembly can transiently need ~2x a single file's size, so watching
+// raw free space catches a backing store about to fill up before a write does.
+func (m *Manager) HeadroomBytes() (uint64, error) {
+	return m.freeBytes()
+}
+
+// roomToStage reports whether writing a new file of newBytes onto the staging
+// filesystem keeps the staging root above MinStageHeadroomBytes of free space.
+// If not, it returns ErrInsufficientDiskSpace.
+func (m *Manager) roomToStage(newBytes int64) error {
+	free, err := m.freeBytes()
+	if err != nil {
+		return err
+	}
+	need := uint64(newBytes) + archivus_constants.MinStageHeadroomBytes
+	if free < need {
+		return fmt.Errorf("%w: need %d free bytes for a %d byte write, have %d",
+			ErrInsufficientDiskSpace, need, newBytes, free)
+	}
+	return nil
+}
+
 // sessionDir returns the staging directory for uploadId after validating that
 // uploadId is a well-formed UUID. The UUID check is what keeps uploadId from
 // escaping the staging root via path traversal.
@@ -80,6 +137,13 @@ func (m *Manager) sessionDir(uploadID string) (string, error) {
 func (m *Manager) Init(s Session) (Session, error) {
 	if s.TotalChunks <= 0 {
 		return Session{}, errors.New("chunkupload: totalChunks must be positive")
+	}
+	// Refuse to open another session when the staging filesystem already has
+	// less than the headroom floor free. This is a courtesy check that turns a
+	// client away before it spends bandwidth streaming chunks that assembly
+	// (which needs the file plus all its chunks on disk at once) could not fit.
+	if err := m.roomToStage(0); err != nil {
+		return Session{}, err
 	}
 	s.UploadID = uuid.NewString()
 	s.CreatedAt = time.Now().UTC()
@@ -142,6 +206,14 @@ func (m *Manager) SaveChunk(sess Session, index int, r io.Reader) error {
 	if index < 0 || index >= sess.TotalChunks {
 		return fmt.Errorf("chunkupload: chunk index %d out of range [0,%d)", index, sess.TotalChunks)
 	}
+	// Guard the write against the staging filesystem being nearly full. Without
+	// this a save that tips the disk over fails inside io.Copy with a raw ENOSPC,
+	// leaving the destination file committed but truncated. (Chunk bodies are
+	// bounded by MaxChunkSize at the handler, so that is the worst case we need
+	// room for here.)
+	if err := m.roomToStage(archivus_constants.MaxChunkSize); err != nil {
+		return err
+	}
 	dir, err := m.sessionDir(sess.UploadID)
 	if err != nil {
 		return err
@@ -202,6 +274,14 @@ func (m *Manager) Assemble(sess Session) (*os.File, error) {
 	}
 	dir, err := m.sessionDir(sess.UploadID)
 	if err != nil {
+		return nil, err
+	}
+	// Assembly holds the complete chunk set and the assembled copy on disk at the
+	// same time, so it roughly doubles the peak footprint of one file. Make sure
+	// the filesystem can take the extra copy before starting to write it, so a
+	// nearly-full disk is surfaced as a clear ErrInsufficientDiskSpace instead of
+	// a truncated assembled file that is indistinguishable from a broken upload.
+	if err := m.roomToStage(sess.Size); err != nil {
 		return nil, err
 	}
 	out, err := os.CreateTemp(m.stagingRoot, assembledPrefix+"*.bin")

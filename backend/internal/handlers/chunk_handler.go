@@ -131,6 +131,10 @@ func (h *StorageHandler) InitChunkUploadHandler(w http.ResponseWriter, r *http.R
 		TotalChunks: req.TotalChunks,
 	})
 	if err != nil {
+		if errors.Is(err, chunkupload.ErrInsufficientDiskSpace) {
+			response.ServiceUnavailableResponse(w, err.Error(), backlogRetryAfterSeconds)
+			return
+		}
 		response.BadRequestResponse(w, err.Error())
 		return
 	}
@@ -174,6 +178,10 @@ func (h *StorageHandler) UploadChunkHandler(w http.ResponseWriter, r *http.Reque
 	defer file.Close()
 
 	if err := h.chunks.SaveChunk(sess, chunkIndex, file); err != nil {
+		if errors.Is(err, chunkupload.ErrInsufficientDiskSpace) {
+			response.ServiceUnavailableResponse(w, err.Error(), backlogRetryAfterSeconds)
+			return
+		}
 		response.BadRequestResponse(w, err.Error())
 		return
 	}
@@ -251,6 +259,13 @@ func (h *StorageHandler) CompleteChunkUploadHandler(w http.ResponseWriter, r *ht
 	// now owns it and is responsible for removing it once persisted.
 	assembled, err := h.chunks.Assemble(sess)
 	if err != nil {
+		// Disk is too tight to put the second, assembled copy on staging. The
+		// session and its chunks are left intact, so a client can retry once
+		// space frees up without re-sending anything.
+		if errors.Is(err, chunkupload.ErrInsufficientDiskSpace) {
+			response.ServiceUnavailableResponse(w, err.Error(), backlogRetryAfterSeconds)
+			return
+		}
 		response.BadRequestResponse(w, err.Error())
 		return
 	}

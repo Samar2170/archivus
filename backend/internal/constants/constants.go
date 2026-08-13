@@ -70,6 +70,15 @@ const (
 	// another chunked upload is refused so clients slow down instead of filling
 	// the disk faster than the workers can drain it.
 	MaxPendingUploadBacklogMB = 20 * 1024 // 20 GB
+
+	// MinStageHeadroomBytes is the free space the chunk staging area insists on
+	// keeping available before it will accept a new session, write another chunk,
+	// or assemble a file. Assembly puts a second full copy of the file on disk on
+	// top of the session's already-staged chunks, so an upload can transiently
+	// need ~2x its size. Checking free space up front turns what would otherwise
+	// be a silent ENOSPC mid-write into a clean, catchable refusal before any
+	// bytes land.
+	MinStageHeadroomBytes = 512 << 20 // 512 MB
 )
 
 type ContextKey string

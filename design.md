@@ -50,3 +50,10 @@ Client arch
 1. Work only when enough CPU and memory available else pause
 2. Create a dashboard to show no. of files in the current dir structure, how many are uploaded, how many are skipped, how many failed
 3. 
+
+
+4. Stream assembly directly into the storage write instead of materializing assembled-*.bin, or at least make disk headroom a monitored precondition. (Disk headroom precondition satisfied )
+5. sqlite.Open(dbFile + "?_journal_mode=WAL&_busy_timeout=5000").
+6. Parallelize the client: N files concurrently, and pipeline chunks within a file.
+7. Checkpoint state periodically (every N files or T seconds), prune entries for files that no longer exist, and switch off MarshalIndent.
+8. Skip >2 GB files as Skipped, not Failed, so the exit code stays meaningful.

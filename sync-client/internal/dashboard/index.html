@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>archivus-sync dashboard</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --border: #d0d7de;
+      --muted: #6b7280;
+      --bg: #ffffff;
+      --accent: #2563eb;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --border: #30363d;
+        --muted: #9da7b3;
+        --bg: #161b22;
+        --accent: #60a5fa;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      margin: 0;
+      background: var(--bg);
+      color: inherit;
+      line-height: 1.45;
+    }
+    header {
+      padding: 1rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+    h1 { font-size: 1.25rem; margin: 0; }
+    h2 { font-size: 1rem; margin: 1.25rem 0 0.5rem; }
+    main { padding: 0 1.5rem 2rem; }
+    .muted { color: var(--muted); }
+    .card {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      margin-top: 0.75rem;
+      overflow-x: auto;
+    }
+    table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+    th, td {
+      text-align: left;
+      padding: 0.45rem 0.6rem;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+      word-break: break-all;
+    }
+    th { position: sticky; top: 0; background: var(--bg); }
+    tr:last-child td { border-bottom: none; }
+    .row-tracked { margin-bottom: 0.35rem; }
+    .path { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+    .pill {
+      display: inline-block;
+      padding: 0.1rem 0.5rem;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin-left: 0.5rem;
+    }
+    .summary {
+      display: flex;
+      gap: 1.5rem;
+      flex-wrap: wrap;
+      margin-top: 0.75rem;
+    }
+    .summary strong { font-size: 1.4rem; color: var(--accent); }
+    .error {
+      border: 1px solid #f85149;
+      color: #f85149;
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      margin-top: 0.75rem;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>archivus-sync <span class="pill" id="server"></span></h1>
+    <div class="muted" id="user"></div>
+  </header>
+  <main>
+    <section>
+      <h2>Tracked folders</h2>
+      <div class="card" id="tracked">Loading…</div>
+    </section>
+
+    <section>
+      <h2>Synced files</h2>
+      <div class="summary">
+        <div>Files recorded<br><strong id="fileCount">0</strong></div>
+        <div>Pending uploads<br><strong id="pendingCount">0</strong></div>
+        <div>Last loaded<br><strong id="lastLoaded" style="font-size:1rem;">–</strong></div>
+      </div>
+      <div class="card" id="files">Loading…</div>
+    </section>
+
+    <div id="error"></div>
+  </main>
+
+  <script>
+    async function load() {
+      const errBox = document.getElementById('error');
+      errBox.innerHTML = '';
+      errBox.classList.remove('error');
+
+      try {
+        const [cfg, state] = await Promise.all([
+          fetch('/api/config', { cache: 'no-store' }).then(r => r.json()),
+          fetch('/api/state', { cache: 'no-store' }).then(r => r.json()),
+        ]);
+
+        document.getElementById('server').textContent = cfg.serverUrl || 'not configured';
+        document.getElementById('user').textContent = cfg.username
+          ? `Signed in as ${cfg.username}`
+          : 'Not signed in';
+
+        renderTracked(cfg.tracked || []);
+        renderFiles((state || {}).files || {});
+        renderPending((state || {}).pending || {});
+
+        document.getElementById('lastLoaded').textContent = new Date().toLocaleTimeString();
+      } catch (err) {
+        errBox.textContent = 'Could not load dashboard data: ' + err;
+        errBox.classList.add('error');
+      }
+    }
+
+    function renderTracked(tracked) {
+      const el = document.getElementById('tracked');
+      if (!tracked.length) {
+        el.innerHTML = '<span class="muted">No tracked folders.</span>';
+        return;
+      }
+      el.innerHTML = tracked.map(tf => `
+        <div class="row-tracked">
+          <span class="path">${escapeHtml(tf.localPath || tf.LocalPath)}</span>
+          <span class="muted">→ drive</span> ${escapeHtml(tf.driveId || tf.DriveID)}
+          <span class="muted">/</span>${escapeHtml(tf.destRel || tf.DestRel || '')}
+        </div>`).join('');
+    }
+
+    function renderFiles(files) {
+      const el = document.getElementById('files');
+      const entries = Object.entries(files).sort((a, b) => a[0].localeCompare(b[0]));
+      document.getElementById('fileCount').textContent = entries.length;
+
+      if (!entries.length) {
+        el.innerHTML = '<span class="muted">No synced files recorded yet.</span>';
+        return;
+      }
+
+      const today = Math.floor(Date.now() / 1000);
+      el.innerHTML = `
+        <table>
+          <thead>
+            <tr>
+              <th>Path</th>
+              <th>Size</th>
+              <th>Modified (recorded)</th>
+              <th>Checksum</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${entries.map(([path, f]) => `
+              <tr>
+                <td class="path">${escapeHtml(path)}</td>
+                <td>${humanSize(f.size)}</td>
+                <td>${humanDate(f.modTime)}</td>
+                <td class="path">${truncate(f.checksum || '', 16)}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>`;
+    }
+
+    function renderPending(pending) {
+      const entries = Object.entries(pending);
+      document.getElementById('pendingCount').textContent = entries.length;
+      if (!entries.length) return;
+      const div = document.createElement('div');
+      div.className = 'card';
+      div.innerHTML = `
+        <h2 style="margin-top:0;">Unfinished chunked uploads</h2>
+        <table>
+          <thead>
+            <tr><th>Path</th><th>Upload ID</th><th>Size</th><th>Started</th></tr>
+          </thead>
+          <tbody>
+            ${entries.map(([path, p]) => `
+              <tr>
+                <td class="path">${escapeHtml(path)}</td>
+                <td class="path">${escapeHtml(p.uploadId || '')}</td>
+                <td>${humanSize(p.size)}</td>
+                <td>${humanDate(p.startedAt * 1000000000)}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>`;
+      document.querySelector('main').appendChild(div);
+    }
+
+    function humanSize(n) {
+      if (n === undefined || n === null || n === 0) return '';
+      const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+      let i = 0;
+      let v = Number(n);
+      while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+      return v.toFixed(i === 0 ? 0 : 1) + ' ' + units[i];
+    }
+
+    function humanDate(modTime) {
+      if (!modTime) return '–';
+      // state.json stores unix nanoseconds; JS dates want milliseconds.
+      const ms = modTime > 1e15 ? Math.floor(modTime / 1e6) : modTime * 1000;
+      const d = new Date(ms);
+      if (isNaN(d.getTime())) return '–';
+      return d.toLocaleString();
+    }
+
+    function truncate(s, n) {
+      if (!s) return '';
+      return s.length <= n ? s : s.slice(0, n) + '…';
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;',
+        '"': '&quot;', "'": '&#39;'
+      }[c]));
+    }
+
+    load();
+    setInterval(load, 5000);
+  </script>
+</body>
+</html>

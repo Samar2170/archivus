@@ -19,6 +19,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -28,6 +29,7 @@ import (
 
 	"archivus-sync/internal/api"
 	"archivus-sync/internal/config"
+	"archivus-sync/internal/dashboard"
 	"archivus-sync/internal/syncer"
 )
 
@@ -52,6 +54,8 @@ func main() {
 		err = cmdSync(args)
 	case "daemon":
 		err = cmdDaemon(args)
+	case "dashboard":
+		err = cmdDashboard(args)
 	case "help", "-h", "--help":
 		usage()
 		return
@@ -76,6 +80,7 @@ Commands:
   track    remove PATH                       Stop tracking a folder
   sync                                      Sync all tracked folders once (cron)
   daemon   [-interval 15m]                   Sync tracked folders on a loop
+  dashboard [-addr 127.0.0.1:8787]           Serve a local web progress page
 
 Config and state live under ~/.archivus-sync (override with ARCHIVUS_SYNC_HOME).
 `)
@@ -90,11 +95,22 @@ func cmdLogin(args []string) error {
 		return err
 	}
 
-	cfg, err := config.Load()
+	selectedServer := strings.TrimSpace(*server)
+	selectedServer = strings.TrimRight(selectedServer, "/")
+
+	var (
+		cfg *config.Config
+		err error
+	)
+	if selectedServer != "" {
+		cfg, err = config.LoadForServer(selectedServer)
+	} else {
+		cfg, err = config.Load()
+	}
 	if err != nil {
 		return err
 	}
-	serverURL := firstNonEmpty(*server, cfg.ServerURL)
+	serverURL := firstNonEmpty(selectedServer, cfg.ServerURL)
 	if serverURL == "" {
 		serverURL = prompt("Server URL (e.g. http://localhost:8080): ")
 	}
@@ -126,7 +142,7 @@ func cmdLogin(args []string) error {
 	if err := cfg.Save(); err != nil {
 		return err
 	}
-	path, _ := config.Path()
+	path, _ := config.PathForServer(cfg.ServerURL)
 	fmt.Printf("Logged in as %s. Credentials saved to %s\n", user, path)
 	return nil
 }
@@ -264,6 +280,39 @@ func cmdSync(args []string) error {
 		return fmt.Errorf("%d file(s) failed to sync", res.Failed)
 	}
 	return nil
+}
+
+func cmdDashboard(args []string) error {
+	fs := flag.NewFlagSet("dashboard", flag.ExitOnError)
+	addr := fs.String("addr", "127.0.0.1:8787", "listen address for the dashboard")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+
+	srv := &http.Server{
+		Addr:    *addr,
+		Handler: dashboard.New(cfg),
+	}
+
+	log.Printf("dashboard listening on http://%s (Ctrl-C to stop)", *addr)
+	ctx, stop := signalContext()
+	defer stop()
+	go func() {
+		<-ctx.Done()
+		if err := srv.Shutdown(context.Background()); err != nil {
+			log.Printf("shutting down dashboard: %v", err)
+		}
+	}()
+	err = srv.ListenAndServe()
+	if err == http.ErrServerClosed {
+		return nil
+	}
+	return err
 }
 
 func cmdDaemon(args []string) error {

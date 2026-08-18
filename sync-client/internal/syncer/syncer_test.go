@@ -222,6 +222,43 @@ func TestUploadIgnoresTouchOnlyChange(t *testing.T) {
 	}
 }
 
+func TestStateIsIsolatedPerServerURL(t *testing.T) {
+	rec1 := &uploadRecorder{}
+	mux1 := http.NewServeMux()
+	mux1.HandleFunc("/storage/file/upload", rec1.handler)
+	(&folderRecorder{}).register(mux1)
+	srv1 := httptest.NewServer(mux1)
+	defer srv1.Close()
+
+	rec2 := &uploadRecorder{}
+	mux2 := http.NewServeMux()
+	mux2.HandleFunc("/storage/file/upload", rec2.handler)
+	(&folderRecorder{}).register(mux2)
+	srv2 := httptest.NewServer(mux2)
+	defer srv2.Close()
+
+	home := t.TempDir()
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "a.txt"), "alpha")
+
+	s1 := newTestSyncerIn(t, home, srv1.URL)
+	if res, err := s1.UploadPath(context.Background(), root, "drive-1", "backups", false); err != nil || res.Uploaded != 1 {
+		t.Fatalf("first server run = %+v, %v; want 1 uploaded", res, err)
+	}
+
+	s2 := newTestSyncerIn(t, home, srv2.URL)
+	if res, err := s2.UploadPath(context.Background(), root, "drive-1", "backups", false); err != nil || res.Uploaded != 1 {
+		t.Fatalf("second server run = %+v, %v; want 1 uploaded", res, err)
+	}
+
+	if rec1.count() != 1 {
+		t.Fatalf("server1 saw %d uploads, want 1", rec1.count())
+	}
+	if rec2.count() != 1 {
+		t.Fatalf("server2 saw %d uploads, want 1", rec2.count())
+	}
+}
+
 // TestDestinationFoldersAreCreated covers what a nested tree sync needs from the
 // server: it only knows folders that were explicitly created, so every level of
 // a destination has to be made to exist before files are sent to it.
@@ -369,7 +406,7 @@ func TestChunkedUploadResumesAcrossRuns(t *testing.T) {
 
 	// The session must be on disk, not just in memory: that is what a later
 	// process has to work from.
-	st, err := loadState()
+	st, err := loadState(srv.URL)
 	if err != nil {
 		t.Fatalf("loadState: %v", err)
 	}
@@ -415,7 +452,7 @@ func TestChunkedUploadResumesAcrossRuns(t *testing.T) {
 		}
 	}
 
-	st, err = loadState()
+	st, err = loadState(srv.URL)
 	if err != nil {
 		t.Fatalf("loadState: %v", err)
 	}

@@ -7,14 +7,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"time"
 
 	"archivus-sync/internal/api"
 	"archivus-sync/internal/config"
 )
-
-const stateFileName = "state.json"
 
 // pendingUploadTTL bounds how long a stored chunked-upload session is trusted.
 // The server never expires sessions on its own, so past this age the client
@@ -73,16 +70,12 @@ type state struct {
 	Pending map[string]pendingUpload `json:"pending,omitempty"`
 }
 
-func statePath() (string, error) {
-	dir, err := config.Dir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, stateFileName), nil
+func statePath(serverURL string) (string, error) {
+	return config.StatePathForServer(serverURL)
 }
 
-func loadState() (*state, error) {
-	path, err := statePath()
+func loadState(serverURL string) (*state, error) {
+	path, err := statePath(serverURL)
 	if err != nil {
 		return nil, err
 	}
@@ -113,8 +106,8 @@ func newState() *state {
 	}
 }
 
-func (s *state) save() error {
-	path, err := statePath()
+func (s *state) save(serverURL string) error {
+	path, err := statePath(serverURL)
 	if err != nil {
 		return err
 	}

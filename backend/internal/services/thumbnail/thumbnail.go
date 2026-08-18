@@ -15,6 +15,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/rwcarlsen/goexif/exif"
 )
 
 const (
@@ -69,10 +71,20 @@ func (s *Service) generateImageThumbnail(ctx context.Context, pathKey string) (s
 	}
 	defer r.Close()
 
-	src, _, err := image.Decode(r)
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return "", fmt.Errorf("read image %q: %w", pathKey, err)
+	}
+
+	src, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		return "", fmt.Errorf("not a supported image %q: %w", pathKey, err)
 	}
+
+	// JPEGs are stored in their sensor orientation and rely on an EXIF
+	// orientation tag to be displayed upright. Apply that tag so portrait
+	// thumbnails aren't emitted rotated onto their side.
+	src = applyEXIFOrientation(src, data)
 
 	thumb := downscale(src, maxThumbWidth, maxThumbHeight)
 
@@ -82,6 +94,74 @@ func (s *Service) generateImageThumbnail(ctx context.Context, pathKey string) (s
 	}
 
 	return s.writeThumb(pathKey, buf.Bytes())
+}
+
+// applyEXIFOrientation normalises src using the JPEG EXIF orientation tag. It
+// returns src unchanged when the image has no orientation tag (or is already
+// upright), so non-JPEG formats and untagged images are unaffected.
+func applyEXIFOrientation(src image.Image, data []byte) image.Image {
+	orientation, err := exifOrientation(data)
+	if err != nil || orientation <= 1 {
+		return src
+	}
+	return transformOrientation(src, orientation)
+}
+
+// exifOrientation reads the EXIF orientation tag (1-8) from raw image bytes.
+func exifOrientation(data []byte) (int, error) {
+	x, err := exif.Decode(bytes.NewReader(data))
+	if err != nil {
+		return 0, err
+	}
+	tag, err := x.Get(exif.Orientation)
+	if err != nil {
+		return 0, err
+	}
+	return tag.Int(0)
+}
+
+// transformOrientation applies an EXIF orientation value (2-8) to src and
+// returns the resulting image. The mapping mirrors the EXIF 2.32 spec.
+func transformOrientation(src image.Image, orientation int) image.Image {
+	b := src.Bounds()
+	w, h := b.Dx(), b.Dy()
+
+	var outW, outH int
+	var mapXY func(x, y int) (int, int)
+	switch orientation {
+	case 2: // flip horizontal
+		outW, outH = w, h
+		mapXY = func(x, y int) (int, int) { return w - 1 - x, y }
+	case 3: // rotate 180
+		outW, outH = w, h
+		mapXY = func(x, y int) (int, int) { return w - 1 - x, h - 1 - y }
+	case 4: // flip vertical
+		outW, outH = w, h
+		mapXY = func(x, y int) (int, int) { return x, h - 1 - y }
+	case 5: // transpose
+		outW, outH = h, w
+		mapXY = func(x, y int) (int, int) { return y, x }
+	case 6: // rotate 90 CW
+		outW, outH = h, w
+		mapXY = func(x, y int) (int, int) { return y, h - 1 - x }
+	case 7: // transverse
+		outW, outH = h, w
+		mapXY = func(x, y int) (int, int) { return w - 1 - y, h - 1 - x }
+	case 8: // rotate 90 CCW
+		outW, outH = h, w
+		mapXY = func(x, y int) (int, int) { return w - 1 - y, x }
+	default:
+		return src
+	}
+
+	dst := image.NewNRGBA(image.Rect(0, 0, outW, outH))
+	for y := range outH {
+		for x := range outW {
+			sx, sy := mapXY(x, y)
+			dst.Set(x, y, src.At(b.Min.X+sx, b.Min.Y+sy))
+		}
+	}
+	return dst
 }
 
 func (s *Service) openReader(ctx context.Context, pathKey string) (io.ReadCloser, error) {

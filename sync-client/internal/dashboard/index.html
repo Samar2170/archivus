@@ -36,24 +36,6 @@
     h2 { font-size: 1rem; margin: 1.25rem 0 0.5rem; }
     main { padding: 0 1.5rem 2rem; }
     .muted { color: var(--muted); }
-    .card {
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 0.75rem 1rem;
-      margin-top: 0.75rem;
-      overflow-x: auto;
-    }
-    table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
-    th, td {
-      text-align: left;
-      padding: 0.45rem 0.6rem;
-      border-bottom: 1px solid var(--border);
-      vertical-align: top;
-      word-break: break-all;
-    }
-    th { position: sticky; top: 0; background: var(--bg); }
-    tr:last-child td { border-bottom: none; }
-    .row-tracked { margin-bottom: 0.35rem; }
     .path { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
     .pill {
       display: inline-block;
@@ -64,13 +46,78 @@
       color: var(--muted);
       margin-left: 0.5rem;
     }
-    .summary {
+
+    .cards {
       display: flex;
-      gap: 1.5rem;
+      gap: 1rem;
       flex-wrap: wrap;
-      margin-top: 0.75rem;
+      margin-top: 1rem;
     }
-    .summary strong { font-size: 1.4rem; color: var(--accent); }
+    .card {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      overflow-x: auto;
+    }
+    .card.stat {
+      flex: 1 1 12rem;
+      min-width: 10rem;
+    }
+    .card.stat .stat-label {
+      font-size: 0.8rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    .card.stat .stat-value {
+      font-size: 2rem;
+      font-weight: 600;
+      color: var(--accent);
+      line-height: 1.2;
+    }
+
+    table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+    th, td {
+      text-align: left;
+      padding: 0.45rem 0.6rem;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+      word-break: break-all;
+    }
+    th { position: sticky; top: 0; background: var(--bg); }
+    tr:last-child td { border-bottom: none; }
+
+    .row-tracked { margin-bottom: 0.35rem; }
+
+    .file { border-bottom: 1px solid var(--border); }
+    .file:last-child { border-bottom: none; }
+    .file summary {
+      cursor: pointer;
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 0.5rem 0.35rem;
+      list-style: none;
+    }
+    .file summary::-webkit-details-marker { display: none; }
+    .file summary::before {
+      content: "▸";
+      color: var(--muted);
+      margin-right: 0.5rem;
+      transition: transform 0.15s;
+      flex: 0 0 auto;
+    }
+    .file[open] summary::before { transform: rotate(90deg); }
+    .file summary .path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+    .file summary .size { flex: 0 0 auto; }
+    .file .details {
+      padding: 0 0.35rem 0.6rem 1.4rem;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+    .file .details .path { word-break: break-all; }
+
     .error {
       border: 1px solid #f85149;
       color: #f85149;
@@ -84,32 +131,58 @@
   <header>
     <h1>archivus-sync <span class="pill" id="server"></span></h1>
     <div class="muted" id="user"></div>
+    <div class="muted" id="lastLoaded"></div>
   </header>
   <main>
-    <section>
-      <h2>Tracked folders</h2>
-      <div class="card" id="tracked">Loading…</div>
+    <section class="cards">
+      <div class="card stat">
+        <div class="stat-label">Files uploaded</div>
+        <div class="stat-value" id="fileCount">–</div>
+      </div>
+      <div class="card stat">
+        <div class="stat-label">Pending uploads</div>
+        <div class="stat-value" id="pendingCount">–</div>
+      </div>
     </section>
 
     <section>
-      <h2>Synced files</h2>
-      <div class="summary">
-        <div>Files recorded<br><strong id="fileCount">0</strong></div>
-        <div>Pending uploads<br><strong id="pendingCount">0</strong></div>
-        <div>Last loaded<br><strong id="lastLoaded" style="font-size:1rem;">–</strong></div>
-      </div>
-      <div class="card" id="files">Loading…</div>
+      <h2>Pending uploads</h2>
+      <div class="card" id="pending">Loading…</div>
+    </section>
+
+    <section>
+      <h2>Uploaded files</h2>
+      <div class="card" id="files"></div>
+      <div class="muted" id="status"></div>
+      <div id="sentinel"></div>
+    </section>
+
+    <section>
+      <h2>Tracked folders</h2>
+      <div class="card" id="tracked">Loading…</div>
     </section>
 
     <div id="error"></div>
   </main>
 
   <script>
-    async function load() {
-      const errBox = document.getElementById('error');
-      errBox.innerHTML = '';
-      errBox.classList.remove('error');
+    const PAGE_SIZE = 50;
+    const errBox = document.getElementById('error');
+    const filesEl = document.getElementById('files');
+    const statusEl = document.getElementById('status');
+    const sentinel = document.getElementById('sentinel');
 
+    let offset = 0;
+    let total = 0;
+    let loading = false;
+    let done = false;
+
+    function showError(msg) {
+      errBox.textContent = msg;
+      errBox.classList.toggle('error', !!msg);
+    }
+
+    async function loadSummary() {
       try {
         const [cfg, state] = await Promise.all([
           fetch('/api/config', { cache: 'no-store' }).then(r => r.json()),
@@ -122,14 +195,86 @@
           : 'Not signed in';
 
         renderTracked(cfg.tracked || []);
-        renderFiles((state || {}).files || {});
-        renderPending((state || {}).pending || {});
+        document.getElementById('fileCount').textContent = state.totalFiles;
+        renderPending(state.pending || {});
 
-        document.getElementById('lastLoaded').textContent = new Date().toLocaleTimeString();
+        document.getElementById('lastLoaded').textContent =
+          'Last refreshed ' + new Date().toLocaleTimeString();
+        showError('');
       } catch (err) {
-        errBox.textContent = 'Could not load dashboard data: ' + err;
-        errBox.classList.add('error');
+        showError('Could not load dashboard data: ' + err);
       }
+    }
+
+    async function loadFiles(reset) {
+      if (loading || (done && !reset)) return;
+      if (reset) {
+        offset = 0;
+        total = 0;
+        done = false;
+        filesEl.innerHTML = '';
+      }
+      loading = true;
+      try {
+        const res = await fetch(`/api/files?offset=${offset}&limit=${PAGE_SIZE}`, { cache: 'no-store' });
+        if (!res.ok) throw new Error(res.statusText);
+        const data = await res.json();
+        total = data.total;
+        if (reset) document.getElementById('fileCount').textContent = total;
+        appendFiles(data.files || []);
+        offset += (data.files || []).length;
+        if (offset >= total || !(data.files || []).length) done = true;
+        updateStatus();
+      } catch (err) {
+        showError('Could not load files: ' + err);
+      } finally {
+        loading = false;
+        if (!done && isSentinelVisible()) loadFiles();
+      }
+    }
+
+    function updateStatus() {
+      if (total === 0) statusEl.textContent = 'No synced files recorded yet.';
+      else if (done) statusEl.textContent = `All ${total} files loaded.`;
+      else statusEl.textContent = `Loaded ${offset} of ${total} files.`;
+    }
+
+    function appendFiles(files) {
+      const frag = document.createDocumentFragment();
+      for (const f of files) frag.appendChild(fileRow(f));
+      filesEl.appendChild(frag);
+    }
+
+    function fileRow(f) {
+      const d = document.createElement('details');
+      d.className = 'file';
+
+      const summary = document.createElement('summary');
+      const name = document.createElement('span');
+      name.className = 'path';
+      name.textContent = f.path;
+      const size = document.createElement('span');
+      size.className = 'muted size';
+      size.textContent = humanSize(f.size);
+      summary.appendChild(name);
+      summary.appendChild(size);
+      d.appendChild(summary);
+
+      const body = document.createElement('div');
+      body.className = 'details';
+      const modified = document.createElement('div');
+      modified.textContent = 'Modified: ' + humanDate(f.modTime);
+      const checksum = document.createElement('div');
+      checksum.textContent = 'Checksum: ';
+      const checksumCode = document.createElement('span');
+      checksumCode.className = 'path';
+      checksumCode.textContent = f.checksum || '';
+      checksum.appendChild(checksumCode);
+      body.appendChild(modified);
+      body.appendChild(checksum);
+      d.appendChild(body);
+
+      return d;
     }
 
     function renderTracked(tracked) {
@@ -146,47 +291,15 @@
         </div>`).join('');
     }
 
-    function renderFiles(files) {
-      const el = document.getElementById('files');
-      const entries = Object.entries(files).sort((a, b) => a[0].localeCompare(b[0]));
-      document.getElementById('fileCount').textContent = entries.length;
-
-      if (!entries.length) {
-        el.innerHTML = '<span class="muted">No synced files recorded yet.</span>';
-        return;
-      }
-
-      const today = Math.floor(Date.now() / 1000);
-      el.innerHTML = `
-        <table>
-          <thead>
-            <tr>
-              <th>Path</th>
-              <th>Size</th>
-              <th>Modified (recorded)</th>
-              <th>Checksum</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${entries.map(([path, f]) => `
-              <tr>
-                <td class="path">${escapeHtml(path)}</td>
-                <td>${humanSize(f.size)}</td>
-                <td>${humanDate(f.modTime)}</td>
-                <td class="path">${truncate(f.checksum || '', 16)}</td>
-              </tr>`).join('')}
-          </tbody>
-        </table>`;
-    }
-
     function renderPending(pending) {
       const entries = Object.entries(pending);
       document.getElementById('pendingCount').textContent = entries.length;
-      if (!entries.length) return;
-      const div = document.createElement('div');
-      div.className = 'card';
-      div.innerHTML = `
-        <h2 style="margin-top:0;">Unfinished chunked uploads</h2>
+      const el = document.getElementById('pending');
+      if (!entries.length) {
+        el.innerHTML = '<span class="muted">No pending uploads.</span>';
+        return;
+      }
+      el.innerHTML = `
         <table>
           <thead>
             <tr><th>Path</th><th>Upload ID</th><th>Size</th><th>Started</th></tr>
@@ -201,7 +314,11 @@
               </tr>`).join('')}
           </tbody>
         </table>`;
-      document.querySelector('main').appendChild(div);
+    }
+
+    function isSentinelVisible() {
+      const r = sentinel.getBoundingClientRect();
+      return r.top < window.innerHeight && r.bottom > 0;
     }
 
     function humanSize(n) {
@@ -222,11 +339,6 @@
       return d.toLocaleString();
     }
 
-    function truncate(s, n) {
-      if (!s) return '';
-      return s.length <= n ? s : s.slice(0, n) + '…';
-    }
-
     function escapeHtml(s) {
       return String(s).replace(/[&<>"']/g, c => ({
         '&': '&amp;', '<': '&lt;', '>': '&gt;',
@@ -234,8 +346,14 @@
       }[c]));
     }
 
-    load();
-    setInterval(load, 5000);
+    const observer = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting) loadFiles();
+    }, { rootMargin: '200px' });
+    observer.observe(sentinel);
+
+    loadSummary();
+    loadFiles(true);
+    setInterval(loadSummary, 5000);
   </script>
 </body>
 </html>

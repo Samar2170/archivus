@@ -11,12 +11,19 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"sort"
+	"strconv"
 
 	"archivus-sync/internal/config"
 )
 
 //go:embed index.html
 var assets embed.FS
+
+const (
+	defaultPageSize = 50
+	maxPageSize     = 500
+)
 
 // Server serves the dashboard over HTTP.
 type Server struct {
@@ -34,6 +41,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleConfig(w, r)
 	case "/api/state":
 		s.handleState(w, r)
+	case "/api/files":
+		s.handleFiles(w, r)
 	default:
 		serveIndex(w, r)
 	}
@@ -48,43 +57,119 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleState reads state.json from the sync home directory. It mirrors the
-// persisted schema in internal/syncer/state.go: {"files": {...}, "pending": {...}}.
+// handleState returns the summary counts plus the pending uploads, without the
+// full files map (that is served page by page via /api/files).
 func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
-	statePath, err := config.StatePathForServer(s.cfg.ServerURL)
+	files, pending, err := s.readState()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+	writeJSON(w, map[string]any{
+		"totalFiles": len(files),
+		"pending":    pending,
+	})
+}
+
+// handleFiles serves one sorted page of the recorded files. It reads state.json
+// from the sync home directory; the schema lives in internal/syncer/state.go.
+func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
+	files, _, err := s.readState()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	keys := make([]string, 0, len(files))
+	for k := range files {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	offset := parseIntQuery(r, "offset", 0)
+	limit := parseIntQuery(r, "limit", defaultPageSize)
+	if limit < 1 {
+		limit = defaultPageSize
+	}
+	if limit > maxPageSize {
+		limit = maxPageSize
+	}
+
+	start := offset
+	if start < 0 {
+		start = 0
+	}
+	if start > len(keys) {
+		start = len(keys)
+	}
+	end := start + limit
+	if end > len(keys) {
+		end = len(keys)
+	}
+
+	out := make([]map[string]any, 0, end-start)
+	for _, k := range keys[start:end] {
+		item := map[string]any{"path": k}
+		if m, ok := files[k].(map[string]any); ok {
+			item["size"] = m["size"]
+			item["modTime"] = m["modTime"]
+			item["checksum"] = m["checksum"]
+		}
+		out = append(out, item)
+	}
+
+	writeJSON(w, map[string]any{
+		"total":  len(keys),
+		"offset": start,
+		"files":  out,
+	})
+}
+
+// readState loads state.json and returns its files and pending maps (defaulting
+// to empty maps when the file or either section is absent).
+func (s *Server) readState() (files, pending map[string]any, err error) {
+	statePath, err := config.StatePathForServer(s.cfg.ServerURL)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	data, err := os.ReadFile(statePath)
 	if os.IsNotExist(err) {
-		writeJSON(w, map[string]any{
-			"files":   map[string]any{},
-			"pending": map[string]any{},
-		})
-		return
+		return map[string]any{}, map[string]any{}, nil
 	}
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return nil, nil, err
 	}
 
 	var state map[string]any
 	if err := json.Unmarshal(data, &state); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return nil, nil, err
 	}
 	if state == nil {
 		state = map[string]any{}
 	}
-	if state["files"] == nil {
-		state["files"] = map[string]any{}
+
+	files, _ = state["files"].(map[string]any)
+	if files == nil {
+		files = map[string]any{}
 	}
-	if state["pending"] == nil {
-		state["pending"] = map[string]any{}
+	pending, _ = state["pending"].(map[string]any)
+	if pending == nil {
+		pending = map[string]any{}
 	}
-	writeJSON(w, state)
+	return files, pending, nil
+}
+
+func parseIntQuery(r *http.Request, key string, def int) int {
+	v := r.URL.Query().Get(key)
+	if v == "" {
+		return def
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return def
+	}
+	return n
 }
 
 func serveIndex(w http.ResponseWriter, r *http.Request) {

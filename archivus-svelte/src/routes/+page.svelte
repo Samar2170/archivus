@@ -22,6 +22,23 @@
 	let total = 0;
 	$: totalPages = Math.max(1, Math.ceil(total / pageSize));
 
+	// Page numbers to show in the pagination bar (with ellipsis for long ranges).
+	$: pageNumbers = getPageNumbers(currentPage, totalPages);
+
+	function getPageNumbers(current: number, total: number): (number | "...")[] {
+		if (total <= 7) {
+			return Array.from({ length: total }, (_, i) => i + 1);
+		}
+		const pages: (number | "...")[] = [1];
+		const start = Math.max(2, current - 1);
+		const end = Math.min(total - 1, current + 1);
+		if (start > 2) pages.push("...");
+		for (let i = start; i <= end; i++) pages.push(i);
+		if (end < total - 1) pages.push("...");
+		pages.push(total);
+		return pages;
+	}
+
 	// Context menu (opened by right-click, or a long-press on touch devices).
 	let menu: { file: FileMetaData; x: number; y: number } | null = null;
 	// The file currently being moved / awaiting delete confirmation.
@@ -223,16 +240,23 @@
 					>
 						← Previous
 					</button>
-					<span class="text-sm text-gray-600">
-						Page <span class="font-medium text-gray-900"
-							>{currentPage}</span
-						>
-						of
-						<span class="font-medium text-gray-900">{totalPages}</span>
-						<span class="hidden text-gray-400 sm:inline"
-							>· {total} items</span
-						>
-					</span>
+					{#each pageNumbers as p}
+						{#if p === "..."}
+							<span class="px-1 text-sm text-gray-400">…</span>
+						{:else}
+							<button
+								on:click={() => goToPage(p)}
+								class:bg-orange-600={p === currentPage}
+								class:text-white={p === currentPage}
+								class="h-8 min-w-8 rounded-lg px-2 text-sm font-medium text-gray-700 hover:bg-orange-50"
+							>
+								{p}
+							</button>
+						{/if}
+					{/each}
+					<span class="hidden text-sm text-gray-400 sm:inline"
+						>· {total} items</span
+					>
 					<button
 						on:click={() => goToPage(currentPage + 1)}
 						disabled={currentPage >= totalPages}

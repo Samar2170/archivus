@@ -47,7 +47,7 @@ func New(cfg *config.Config, logger *log.Logger) (*Syncer, error) {
 	if !cfg.LoggedIn() {
 		return nil, fmt.Errorf("not logged in: run `archivus-sync login` first")
 	}
-	st, err := loadState()
+	st, err := loadState(cfg.ServerURL)
 	if err != nil {
 		return nil, err
 	}
@@ -87,14 +87,14 @@ func (s *Syncer) UploadPath(ctx context.Context, localPath, driveID, destRel str
 	}
 	if info.IsDir() {
 		res := s.uploadTree(ctx, abs, driveID, destRel, force)
-		if err := s.state.save(); err != nil {
+		if err := s.state.save(s.cfg.ServerURL); err != nil {
 			return res, err
 		}
 		return res, nil
 	}
 	// Single file: it lands directly under destRel.
 	res := s.uploadOne(ctx, abs, info, driveID, destRel, force)
-	if err := s.state.save(); err != nil {
+	if err := s.state.save(s.cfg.ServerURL); err != nil {
 		return res, err
 	}
 	return res, nil
@@ -119,7 +119,7 @@ func (s *Syncer) SyncAll(ctx context.Context) (Result, error) {
 		res := s.uploadTree(ctx, tf.LocalPath, tf.DriveID, tf.DestRel, false)
 		total.add(res)
 	}
-	if err := s.state.save(); err != nil {
+	if err := s.state.save(s.cfg.ServerURL); err != nil {
 		return total, err
 	}
 	s.log.Printf("sync complete: %d uploaded, %d unchanged, %d failed", total.Uploaded, total.Skipped, total.Failed)
@@ -314,7 +314,7 @@ func (s *Syncer) uploadChunked(ctx context.Context, absPath string, info os.File
 	// Persist the session before sending a single byte. The whole point is to
 	// survive a crash mid-upload, and the run's own end-of-run save will not
 	// happen if the process never gets there.
-	if err := s.state.save(); err != nil {
+	if err := s.state.save(s.cfg.ServerURL); err != nil {
 		// A session that can't be recorded can never be resumed, so don't leave
 		// it staged on the server.
 		s.discardPending(ctx, absPath)

@@ -8,10 +8,9 @@
 	export let file: FileMetaData;
 	export let dragging = false;
 
-	function formatSize(bytes: number): string {
-		if (bytes < 1024) return `${bytes} B`;
-		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-		return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+	function formatSize(megaBytes: number): string {
+		if (megaBytes < 1) return `${(megaBytes * 1024).toFixed(2)} KB`;
+		return `${megaBytes.toFixed(2)} MB`;
 	}
 
 	$: ext = file.Extension?.toLowerCase().replace(/^\./, "") ?? "";

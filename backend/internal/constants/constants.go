@@ -3,6 +3,8 @@ package archivus_constants
 const (
 	UserId            = "userId"
 	UserIdKey         = "userId"
+	RequestIdKey      = "requestId"
+	RequestIdHeader   = "X-Request-Id"
 	StorageDbFile     = "storage.db"
 	MinPasswordLength = 8
 	PINLength         = 6

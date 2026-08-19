@@ -6,6 +6,7 @@ import (
 	"archivus/internal/handlers"
 	"archivus/internal/services/auth"
 	"archivus/internal/services/chunkupload"
+	"archivus/pkg/logging"
 	"archivus/pkg/response"
 	"log"
 	"net/http"
@@ -77,5 +78,5 @@ func GetServer(authService *auth.AuthService) *http.Server {
 		log.Printf("no frontend found at %s, running API only", staticDir)
 	}
 
-	return &http.Server{Handler: CORSMiddleware(router), Addr: ":8080"}
+	return &http.Server{Handler: logging.NewLogMiddleware().Handler(CORSMiddleware(router)), Addr: ":8080"}
 }

@@ -2,6 +2,7 @@ package s3manager
 
 import (
 	archivus_constants "archivus/internal/constants"
+	"archivus/pkg/logging"
 	"context"
 	"errors"
 	"fmt"
@@ -161,16 +162,16 @@ func (s *S3Manager) PurgeExpiredRecycleBin(ctx context.Context) error {
 			return err
 		}
 		if err := s.Client.DeleteObject(ctx, s.Client.BucketName, it.RecyclePathKey); err != nil {
-			log.Warn().Err(err).Str("key", it.RecyclePathKey).Msg("s3manager: purge: failed to delete recycled object")
+			logging.CronErrorLogger.Error().Err(err).Str("key", it.RecyclePathKey).Msg("cron: purge: failed to delete recycled object")
 			continue
 		}
 		if it.ThumbnailPath != "" {
 			if err := os.Remove(it.ThumbnailPath); err != nil && !os.IsNotExist(err) {
-				log.Warn().Err(err).Str("path", it.ThumbnailPath).Msg("s3manager: purge: failed to remove thumbnail")
+				logging.CronErrorLogger.Error().Err(err).Str("path", it.ThumbnailPath).Msg("cron: purge: failed to remove thumbnail")
 			}
 		}
 		if err := s.Store.DeleteRecycleBinItemByID(it.ID.String()); err != nil {
-			log.Warn().Err(err).Str("id", it.ID.String()).Msg("s3manager: purge: failed to delete recycle bin row")
+			logging.CronErrorLogger.Error().Err(err).Str("id", it.ID.String()).Msg("cron: purge: failed to delete recycle bin row")
 		}
 	}
 	log.Info().Int("count", len(items)).Msg("s3manager: purged expired recycle bin items")

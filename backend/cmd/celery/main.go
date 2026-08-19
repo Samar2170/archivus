@@ -8,6 +8,7 @@ import (
 	"archivus/internal/services/storagemanager/s3manager"
 	"archivus/internal/services/thumbnail"
 	"archivus/internal/store"
+	"archivus/pkg/logging"
 	"context"
 	"fmt"
 	"os"
@@ -103,15 +104,15 @@ func runThumbnailService(ctx context.Context, s *store.Store) {
 			config.S3Cfg.BucketName,
 		)
 		if err != nil {
-			panic(err)
+			logging.CronErrorLogger.Error().Err(err).Msg("cron: failed to build s3 manager for thumbnails")
+			return
 		}
 	}
 
 	thumbnailService := thumbnail.NewS3Service(s3Manager, config.Config.ThumbnailDir, s)
 	if err := thumbnailService.MakeThumbnails(context.Background()); err != nil {
-		log.Fatal().Err(err).Msg("failed to generate thumbnails")
+		logging.CronErrorLogger.Error().Err(err).Msg("cron: failed to generate thumbnails")
 	}
-
 }
 
 // buildStorageManager constructs the storage manager matching the configured
@@ -135,29 +136,29 @@ func buildStorageManager(s *store.Store) (storagemanager.StorageManager, error) 
 func runProcessPendingUploads(ctx context.Context, s *store.Store) {
 	sm, err := buildStorageManager(s)
 	if err != nil {
-		log.Error().Err(err).Msg("cron: failed to build storage manager for pending uploads")
+		logging.CronErrorLogger.Error().Err(err).Msg("cron: failed to build storage manager for pending uploads")
 		return
 	}
 	if err := sm.ProcessPendingUploads(ctx); err != nil {
-		log.Error().Err(err).Msg("cron: failed to process pending uploads")
+		logging.CronErrorLogger.Error().Err(err).Msg("cron: failed to process pending uploads")
 	}
 }
 
 func runPurgeRecycleBin(ctx context.Context, s *store.Store) {
 	sm, err := buildStorageManager(s)
 	if err != nil {
-		log.Error().Err(err).Msg("failed to build storage manager for recycle bin purge")
+		logging.CronErrorLogger.Error().Err(err).Msg("cron: failed to build storage manager for recycle bin purge")
 		return
 	}
 	if err := sm.PurgeExpiredRecycleBin(ctx); err != nil {
-		log.Error().Err(err).Msg("failed to purge expired recycle bin items")
+		logging.CronErrorLogger.Error().Err(err).Msg("cron: failed to purge expired recycle bin items")
 	}
 }
 
 func runMarkImages(s *store.Store) {
 	service := oculus.NewService(s)
 	if err := service.MarkImages(); err != nil {
-		log.Error().Err(err).Msg("failed to mark image files")
+		logging.CronErrorLogger.Error().Err(err).Msg("cron: failed to mark image files")
 	}
 }
 
@@ -203,6 +204,7 @@ func main() {
 	if err := config.Init(*serverMode, s3ConfigPaths); err != nil {
 		panic(err)
 	}
+	logging.SetupLogging()
 	fmt.Printf("Config initialized\n")
 	fmt.Println(config.Config)
 	fmt.Println("ProjectBaseDir:", config.ProjectBaseDir)

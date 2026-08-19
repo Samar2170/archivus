@@ -3,6 +3,7 @@ package logging
 import (
 	archivus_constants "archivus/internal/constants"
 	"bytes"
+	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
 
@@ -32,9 +34,19 @@ func (m *LogMiddleware) Handler(next http.Handler) http.Handler {
 		startTime := time.Now()
 		clientIP := extractClientIP(r)
 
+		// Honour an incoming request id (e.g. from a reverse proxy or client) so
+		// logs can be correlated across services; otherwise mint a fresh one.
+		requestID := r.Header.Get(archivus_constants.RequestIdHeader)
+		if requestID == "" {
+			requestID = uuid.NewString()
+		}
+		r = r.WithContext(context.WithValue(r.Context(), archivus_constants.ContextKey(archivus_constants.RequestIdKey), requestID))
+		w.Header().Set(archivus_constants.RequestIdHeader, requestID)
+
 		// --- Raw request log (debug) — captured before the handler runs ---
 		rawEv := m.debugLog.Debug().
 			Str("type", "raw_request").
+			Str("request_id", requestID).
 			Str("method", r.Method).
 			Str("path", r.URL.Path).
 			Str("query", r.URL.RawQuery).
@@ -55,6 +67,7 @@ func (m *LogMiddleware) Handler(next http.Handler) http.Handler {
 				stack := string(debug.Stack())
 				m.errLog.Error().
 					Str("type", "panic").
+					Str("request_id", requestID).
 					Str("method", r.Method).
 					Str("path", r.URL.Path).
 					Str("ip", clientIP).
@@ -75,6 +88,7 @@ func (m *LogMiddleware) Handler(next http.Handler) http.Handler {
 		// --- Audit log (every request) ---
 		m.auditLog.Info().
 			Str("type", "audit").
+			Str("request_id", requestID).
 			Str("method", r.Method).
 			Str("path", r.URL.Path).
 			Str("ip", clientIP).
@@ -103,6 +117,7 @@ func (m *LogMiddleware) Handler(next http.Handler) http.Handler {
 			}
 			m.errLog.Error().
 				Str("type", "server_error").
+				Str("request_id", requestID).
 				Str("method", r.Method).
 				Str("path", r.URL.Path).
 				Str("ip", clientIP).
@@ -115,6 +130,13 @@ func (m *LogMiddleware) Handler(next http.Handler) http.Handler {
 				Msg("internal server error")
 		}
 	})
+}
+
+// RequestIDFromContext returns the request id stored by the log middleware, or
+// an empty string if the context has none.
+func RequestIDFromContext(ctx context.Context) string {
+	id, _ := ctx.Value(archivus_constants.ContextKey(archivus_constants.RequestIdKey)).(string)
+	return id
 }
 
 // extractClientIP returns the real client IP, honouring X-Forwarded-For / X-Real-IP.

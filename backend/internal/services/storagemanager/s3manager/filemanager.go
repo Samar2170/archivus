@@ -6,6 +6,7 @@ import (
 	"archivus/internal/models"
 	storage_types "archivus/internal/services/storagemanager/types"
 	"archivus/internal/store"
+	"archivus/pkg/logging"
 	"context"
 	"errors"
 	"fmt"
@@ -17,8 +18,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/rs/zerolog/log"
 )
 
 func (s *S3Manager) UploadFile(relPath, driveId, userId string, file multipart.File, fileHeader *multipart.FileHeader) error {
@@ -340,8 +339,8 @@ func (s *S3Manager) uploadBatch(ctx context.Context, batch []models.FileMetadata
 				}
 				won, err := s.Store.ClaimPendingUpload(fm.ID.String())
 				if err != nil {
-					log.Error().Err(err).Str("pathKey", fm.PathKey).
-						Msg("s3manager: claim pending upload failed")
+					logging.CronErrorLogger.Error().Err(err).Str("pathKey", fm.PathKey).
+						Msg("cron: claim pending upload failed")
 					continue
 				}
 				if !won {
@@ -368,8 +367,8 @@ func (s *S3Manager) finalizeClaimed(ctx context.Context, fm models.FileMetadata)
 	} else {
 		_ = s.Store.RevertUploadToPending(fm.ID.String())
 	}
-	log.Error().Err(err).Str("pathKey", fm.PathKey).Int("attempt", attempt).
-		Msg("s3manager: finalize pending upload failed")
+	logging.CronErrorLogger.Error().Err(err).Str("pathKey", fm.PathKey).Int("attempt", attempt).
+		Msg("cron: finalize pending upload failed")
 }
 
 // PendingBacklogFull reports whether the staging area is holding as much

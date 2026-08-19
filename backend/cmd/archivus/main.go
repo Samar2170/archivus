@@ -7,6 +7,7 @@ import (
 	"archivus/internal/services/storagemanager/diskmanager"
 	"archivus/internal/services/storagemanager/s3manager"
 	"archivus/internal/store"
+	"archivus/pkg/logging"
 	"archivus/server"
 	"fmt"
 	"os"
@@ -40,6 +41,7 @@ func main() {
 	if err := config.Init(*serverMode, s3ConfigPaths); err != nil {
 		panic(err)
 	}
+	logging.SetupLogging()
 	fmt.Printf("Config initialized\n")
 	fmt.Println(config.Config)
 

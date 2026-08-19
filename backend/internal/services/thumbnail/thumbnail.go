@@ -3,6 +3,7 @@ package thumbnail
 import (
 	"archivus/internal/services/storagemanager/s3manager"
 	"archivus/internal/store"
+	"archivus/pkg/logging"
 	"bytes"
 	"context"
 	"fmt"
@@ -208,11 +209,11 @@ func (s *Service) MakeThumbnails(ctx context.Context) error {
 	for _, fmd := range fmds {
 		thumbnailKey, err := s.GenerateThumbnail(ctx, fmd.PathKey)
 		if err != nil {
-			fmt.Printf("generate thumbnail for %q: %v\n", fmd.PathKey, err)
+			logging.CronErrorLogger.Error().Err(err).Str("path", fmd.PathKey).Msg("cron: generate thumbnail")
 			continue
 		}
 		if err := s.store.UpdateFileMetadataThumbnailPath(fmd.ID.String(), thumbnailKey); err != nil {
-			fmt.Printf("update thumbnail path for %q: %v\n", fmd.PathKey, err)
+			logging.CronErrorLogger.Error().Err(err).Str("path", fmd.PathKey).Msg("cron: update thumbnail path")
 		}
 	}
 	return nil

@@ -17,6 +17,7 @@ import (
 var Errorlogger zerolog.Logger
 var AuditLogger zerolog.Logger
 var DebugLogger zerolog.Logger
+var CronErrorLogger zerolog.Logger
 
 // dateWriter rotates to a new file each calendar day.
 type dateWriter struct {
@@ -28,37 +29,54 @@ type dateWriter struct {
 }
 
 func newDateWriter(dir, prefix string) *dateWriter {
-	return &dateWriter{dir: dir, prefix: prefix}
+	w := &dateWriter{dir: dir, prefix: prefix}
+	_ = w.rotate() // create the file eagerly so it exists even before any entry is written
+	return w
+}
+
+// rotate ensures the writer is pointed at today's file, creating it if needed.
+// The caller must hold w.mu.
+func (w *dateWriter) rotate() error {
+	today := time.Now().Format("2006-01-02")
+	if w.file != nil && w.date == today {
+		return nil
+	}
+	if w.file != nil {
+		w.file.Close()
+	}
+	name := filepath.Join(w.dir, fmt.Sprintf("%s-%s.log", w.prefix, today))
+	f, err := os.OpenFile(name, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		w.file = nil
+		w.date = ""
+		return err
+	}
+	w.file = f
+	w.date = today
+	return nil
 }
 
 func (w *dateWriter) Write(p []byte) (int, error) {
-	today := time.Now().Format("2006-01-02")
-
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	if w.file == nil || w.date != today {
-		if w.file != nil {
-			w.file.Close()
-		}
-		name := filepath.Join(w.dir, fmt.Sprintf("%s-%s.log", w.prefix, today))
-		f, err := os.OpenFile(name, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
-		if err != nil {
-			return 0, err
-		}
-		w.file = f
-		w.date = today
+	if err := w.rotate(); err != nil {
+		return 0, err
 	}
-
 	return w.file.Write(p)
 }
 
 func SetupLogging() {
 	dir := config.Config.LogsDir
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		Errorlogger = zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr}).With().Timestamp().Logger()
+		return
+	}
 
 	Errorlogger = zerolog.New(newDateWriter(dir, "error")).With().Timestamp().Logger()
 	AuditLogger = zerolog.New(newDateWriter(dir, "audit")).With().Timestamp().Logger()
 	DebugLogger = zerolog.New(newDateWriter(dir, "debug")).Level(zerolog.DebugLevel).With().Timestamp().Logger()
+	CronErrorLogger = zerolog.New(newDateWriter(dir, "cron-error")).With().Timestamp().Logger()
 }
 
 func HandleError(err error) error {

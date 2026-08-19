@@ -2,6 +2,7 @@ package diskmanager
 
 import (
 	archivus_constants "archivus/internal/constants"
+	"archivus/pkg/logging"
 	"context"
 	"errors"
 	"fmt"
@@ -162,16 +163,16 @@ func (dm *DiskManager) PurgeExpiredRecycleBin(ctx context.Context) error {
 			return err
 		}
 		if err := os.RemoveAll(filepath.Dir(it.RecyclePathKey)); err != nil {
-			log.Warn().Err(err).Str("path", it.RecyclePathKey).Msg("diskmanager: purge: failed to remove recycled file")
+			logging.CronErrorLogger.Error().Err(err).Str("path", it.RecyclePathKey).Msg("cron: purge: failed to remove recycled file")
 			continue
 		}
 		if it.ThumbnailPath != "" {
 			if err := os.Remove(it.ThumbnailPath); err != nil && !os.IsNotExist(err) {
-				log.Warn().Err(err).Str("path", it.ThumbnailPath).Msg("diskmanager: purge: failed to remove thumbnail")
+				logging.CronErrorLogger.Error().Err(err).Str("path", it.ThumbnailPath).Msg("cron: purge: failed to remove thumbnail")
 			}
 		}
 		if err := dm.Store.DeleteRecycleBinItemByID(it.ID.String()); err != nil {
-			log.Warn().Err(err).Str("id", it.ID.String()).Msg("diskmanager: purge: failed to delete recycle bin row")
+			logging.CronErrorLogger.Error().Err(err).Str("id", it.ID.String()).Msg("cron: purge: failed to delete recycle bin row")
 		}
 	}
 	log.Info().Int("count", len(items)).Msg("diskmanager: purged expired recycle bin items")

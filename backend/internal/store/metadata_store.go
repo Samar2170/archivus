@@ -2,8 +2,10 @@ package store
 
 import (
 	"archivus/internal/models"
+	storage_types "archivus/internal/services/storagemanager/types"
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -311,10 +313,15 @@ func (s *Store) GetDirectoriesByParentPrefix(driveID string, prefixes [2]string)
 }
 
 // CountFileMetadataByDirPrefix returns the number of files directly under the
-// given directory prefixes, used to page the combined file/directory listing.
-func (s *Store) CountFileMetadataByDirPrefix(driveID string, prefixes [2]string) (int64, error) {
+// given directory prefixes, optionally restricted to a content type. Used to
+// page the combined file/directory listing.
+func (s *Store) CountFileMetadataByDirPrefix(driveID string, prefixes [2]string, contentType string) (int64, error) {
+	query := s.conn().Model(&models.FileMetadata{}).Where("drive_id = ? AND prefix IN ?", driveID, prefixes)
+	if contentType != "" {
+		query = query.Where("content_type = ?", contentType)
+	}
 	var count int64
-	result := s.conn().Model(&models.FileMetadata{}).Where("drive_id = ? AND prefix IN ?", driveID, prefixes).Count(&count)
+	result := query.Count(&count)
 	return count, result.Error
 }
 
@@ -326,21 +333,50 @@ func (s *Store) CountDirectoriesByParentPrefix(driveID string, prefixes [2]strin
 	return count, result.Error
 }
 
+// listOrderClause maps a user-supplied sort key to a validated SQL ORDER BY
+// clause. sortBy is one of name/size/created_at; anything else falls back to
+// name. sortOrder is asc/desc (anything else defaults to asc). A name
+// tiebreaker keeps results deterministic when the primary key has duplicates
+// (e.g. the zero size every directory carries).
+func listOrderClause(sortBy, sortOrder string) string {
+	column := "name"
+	switch sortBy {
+	case storage_types.SortBySize:
+		column = "size_in_mb"
+	case storage_types.SortByCreatedAt:
+		column = "created_at"
+	}
+	direction := "ASC"
+	if strings.EqualFold(sortOrder, storage_types.SortOrderDesc) {
+		direction = "DESC"
+	}
+	order := column + " " + direction
+	if column != "name" {
+		order += ", name ASC"
+	}
+	return order
+}
+
 // GetFileMetadataByDirPrefixPaged returns files under the given prefixes ordered
-// by name, sliced by limit/offset. A negative limit disables the limit.
-func (s *Store) GetFileMetadataByDirPrefixPaged(driveID string, prefixes [2]string, limit, offset int) ([]models.FileMetadata, error) {
+// by the requested key, optionally restricted to a content type, and sliced by
+// limit/offset. A negative limit disables the limit.
+func (s *Store) GetFileMetadataByDirPrefixPaged(driveID string, prefixes [2]string, limit, offset int, sortBy, sortOrder, contentType string) ([]models.FileMetadata, error) {
+	query := s.conn().Where("drive_id = ? AND prefix IN ?", driveID, prefixes)
+	if contentType != "" {
+		query = query.Where("content_type = ?", contentType)
+	}
 	var files []models.FileMetadata
-	result := s.conn().Where("drive_id = ? AND prefix IN ?", driveID, prefixes).
-		Order("name ASC").Limit(limit).Offset(offset).Find(&files)
+	result := query.Order(listOrderClause(sortBy, sortOrder)).Limit(limit).Offset(offset).Find(&files)
 	return files, result.Error
 }
 
 // GetDirectoriesByParentPrefixPaged returns directories under the given prefixes
-// ordered by name, sliced by limit/offset. A negative limit disables the limit.
-func (s *Store) GetDirectoriesByParentPrefixPaged(driveID string, prefixes [2]string, limit, offset int) ([]models.DirectoryMetadata, error) {
+// ordered by the requested key, sliced by limit/offset. A negative limit
+// disables the limit.
+func (s *Store) GetDirectoriesByParentPrefixPaged(driveID string, prefixes [2]string, limit, offset int, sortBy, sortOrder string) ([]models.DirectoryMetadata, error) {
 	var dirs []models.DirectoryMetadata
 	result := s.conn().Where("drive_id = ? AND prefix IN ?", driveID, prefixes).
-		Order("name ASC").Limit(limit).Offset(offset).Find(&dirs)
+		Order(listOrderClause(sortBy, sortOrder)).Limit(limit).Offset(offset).Find(&dirs)
 	return dirs, result.Error
 }
 

@@ -28,6 +28,12 @@ type DirEntry struct {
 	Path      string
 	Thumbnail string
 
+	// CreatedAt is when the file or directory was created. Empty for entries
+	// built outside the metadata store (e.g. legacy listings).
+	CreatedAt time.Time
+	// ContentType is the file's MIME type. Empty for directories.
+	ContentType string
+
 	// UploadStatus is the backing file's persistence state ("ready", "pending",
 	// "uploading", "failed"). Empty for directories.
 	UploadStatus string
@@ -42,6 +48,31 @@ type PagedDirEntries struct {
 	Total    int64      `json:"total"`
 	Page     int        `json:"page"`
 	PageSize int        `json:"pageSize"`
+}
+
+// Sort keys accepted by directory listings. Anything else falls back to name.
+const (
+	SortByName      = "name"
+	SortBySize      = "size"
+	SortByCreatedAt = "created_at"
+
+	SortOrderAsc  = "asc"
+	SortOrderDesc = "desc"
+)
+
+// ListOptions controls how a directory listing is ordered and filtered. The
+// zero value is the default listing: files and directories ordered by name
+// ascending, with no content-type filter applied.
+type ListOptions struct {
+	// SortBy is one of SortByName, SortBySize, or SortByCreatedAt. Unknown or
+	// empty values are treated as SortByName.
+	SortBy string
+	// SortOrder is SortOrderAsc or SortOrderDesc. Unknown or empty values are
+	// treated as ascending.
+	SortOrder string
+	// ContentType, when non-empty, restricts the returned files to those whose
+	// content type matches. Directories are never filtered out.
+	ContentType string
 }
 
 // FetchWindow describes how many directory and file rows to load from the two

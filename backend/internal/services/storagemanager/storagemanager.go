@@ -26,7 +26,7 @@ type StorageManager interface {
 	// V2: stores PathKey/Prefix correctly and returns full metadata from DB.
 	CreateDirV2(subFolder, driveId, userId string) error
 	UploadFileV2(relPath, driveId, userId string, file multipart.File, fileHeader *multipart.FileHeader) error
-	GetFilesV2(relPath, driveId, userId string, page, pageSize int) (storage_types.PagedDirEntries, error)
+	GetFilesV2(relPath, driveId, userId string, page, pageSize int, opts storage_types.ListOptions) (storage_types.PagedDirEntries, error)
 
 	// EnqueueChunkedUpload registers an assembled chunked upload for persistence.
 	// localPath is the on-disk assembled file. For backends where writing is slow

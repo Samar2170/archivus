@@ -69,6 +69,23 @@ func (s *Store) DeleteFileMetadataByRelPath(relPath string) error {
 	return result.Error
 }
 
+// DeleteFileMetadataUnderPath soft-deletes every file row whose path key lives
+// at or below the given directory path key. Folder deletion uses it to remove
+// the file rows (and any archived versions) after the backing bytes are gone,
+// so a later re-upload of the same name is treated as a first upload rather
+// than an overwrite of a stale row.
+func (s *Store) DeleteFileMetadataUnderPath(driveID, dirPathKey string) error {
+	result := s.conn().Where("drive_id = ? AND path_key LIKE ?", driveID, dirPathKey+"/%").Delete(&models.FileMetadata{})
+	return result.Error
+}
+
+// DeleteDirectoryMetadataUnderPath soft-deletes a directory row (exact match on
+// path key) and all of its descendant directory rows.
+func (s *Store) DeleteDirectoryMetadataUnderPath(driveID, dirPathKey string) error {
+	result := s.conn().Where("drive_id = ? AND (path_key = ? OR path_key LIKE ?)", driveID, dirPathKey, dirPathKey+"/%").Delete(&models.DirectoryMetadata{})
+	return result.Error
+}
+
 // DeleteFileMetadataByID permanently removes a file metadata row. Used when a
 // file is moved into the recycle bin (the RecycleBinItem row then owns it).
 func (s *Store) DeleteFileMetadataByID(id string) error {
@@ -313,12 +330,12 @@ func (s *Store) GetDirectoriesByParentPrefix(driveID string, prefixes [2]string)
 }
 
 // CountFileMetadataByDirPrefix returns the number of files directly under the
-// given directory prefixes, optionally restricted to a content type. Used to
-// page the combined file/directory listing.
-func (s *Store) CountFileMetadataByDirPrefix(driveID string, prefixes [2]string, contentType string) (int64, error) {
+// given directory prefixes, optionally restricted to a content-type category or
+// exact content type. Used to page the combined file/directory listing.
+func (s *Store) CountFileMetadataByDirPrefix(driveID string, prefixes [2]string, category, contentType string) (int64, error) {
 	query := s.conn().Model(&models.FileMetadata{}).Where("drive_id = ? AND prefix IN ?", driveID, prefixes)
-	if contentType != "" {
-		query = query.Where("content_type = ?", contentType)
+	if cond, args := contentTypeFilter(category, contentType); cond != "" {
+		query = query.Where(cond, args...)
 	}
 	var count int64
 	result := query.Count(&count)
@@ -331,6 +348,72 @@ func (s *Store) CountDirectoriesByParentPrefix(driveID string, prefixes [2]strin
 	var count int64
 	result := s.conn().Model(&models.DirectoryMetadata{}).Where("drive_id = ? AND prefix IN ?", driveID, prefixes).Count(&count)
 	return count, result.Error
+}
+
+// contentTypeFilter builds the WHERE fragment (condition string + args) that
+// applies a content-type category or exact content type to a file query. An
+// empty category and contentType yield no filter.
+func contentTypeFilter(category, contentType string) (string, []interface{}) {
+	if category != "" {
+		if category == storage_types.CategoryOthers {
+			return negatedContentTypeFilter(allCategoryPatterns())
+		}
+		return positiveContentTypeFilter(storage_types.CategoryContentTypes(category))
+	}
+	if contentType != "" {
+		return "content_type = ?", []interface{}{contentType}
+	}
+	return "", nil
+}
+
+// allCategoryPatterns is the union of every named category's patterns, used to
+// compute the "others" complement.
+func allCategoryPatterns() []string {
+	var all []string
+	for _, c := range storage_types.Categories() {
+		all = append(all, storage_types.CategoryContentTypes(c)...)
+	}
+	return all
+}
+
+// positiveContentTypeFilter turns a list of content-type patterns into an ORed
+// match clause. Patterns ending in "/" match by prefix.
+func positiveContentTypeFilter(patterns []string) (string, []interface{}) {
+	if len(patterns) == 0 {
+		return "", nil
+	}
+	var parts []string
+	var args []interface{}
+	for _, p := range patterns {
+		if strings.HasSuffix(p, "/") {
+			parts = append(parts, "content_type LIKE ?")
+			args = append(args, p+"%")
+		} else {
+			parts = append(parts, "content_type = ?")
+			args = append(args, p)
+		}
+	}
+	return "(" + strings.Join(parts, " OR ") + ")", args
+}
+
+// negatedContentTypeFilter returns the ANDed negation of the given patterns, so
+// only files that match none of them are returned.
+func negatedContentTypeFilter(patterns []string) (string, []interface{}) {
+	if len(patterns) == 0 {
+		return "", nil
+	}
+	var parts []string
+	var args []interface{}
+	for _, p := range patterns {
+		if strings.HasSuffix(p, "/") {
+			parts = append(parts, "content_type NOT LIKE ?")
+			args = append(args, p+"%")
+		} else {
+			parts = append(parts, "content_type <> ?")
+			args = append(args, p)
+		}
+	}
+	return "(" + strings.Join(parts, " AND ") + ")", args
 }
 
 // listOrderClause maps a user-supplied sort key to a validated SQL ORDER BY
@@ -358,12 +441,13 @@ func listOrderClause(sortBy, sortOrder string) string {
 }
 
 // GetFileMetadataByDirPrefixPaged returns files under the given prefixes ordered
-// by the requested key, optionally restricted to a content type, and sliced by
-// limit/offset. A negative limit disables the limit.
-func (s *Store) GetFileMetadataByDirPrefixPaged(driveID string, prefixes [2]string, limit, offset int, sortBy, sortOrder, contentType string) ([]models.FileMetadata, error) {
+// by the requested key, optionally restricted to a content-type category or
+// exact content type, and sliced by limit/offset. A negative limit disables the
+// limit.
+func (s *Store) GetFileMetadataByDirPrefixPaged(driveID string, prefixes [2]string, limit, offset int, sortBy, sortOrder, category, contentType string) ([]models.FileMetadata, error) {
 	query := s.conn().Where("drive_id = ? AND prefix IN ?", driveID, prefixes)
-	if contentType != "" {
-		query = query.Where("content_type = ?", contentType)
+	if cond, args := contentTypeFilter(category, contentType); cond != "" {
+		query = query.Where(cond, args...)
 	}
 	var files []models.FileMetadata
 	result := query.Order(listOrderClause(sortBy, sortOrder)).Limit(limit).Offset(offset).Find(&files)

@@ -225,11 +225,16 @@ func (h *StorageHandler) GetFilesHandler(w http.ResponseWriter, r *http.Request)
 		PageSize    int    `json:"pageSize"`
 		SortBy      string `json:"sortBy"`
 		SortOrder   string `json:"sortOrder"`
+		Category    string `json:"category"`
 		ContentType string `json:"contentType"`
 	}
 	var req getFilesRequest
 	if err := reqhelpers.DecodeRequest(r, &req); err != nil {
 		response.BadRequestResponse(w, err.Error())
+		return
+	}
+	if req.Category != "" && !storage_types.ValidCategory(req.Category) {
+		response.BadRequestResponse(w, fmt.Sprintf("unsupported category %q", req.Category))
 		return
 	}
 	userID, ok := r.Context().Value(archivus_constants.ContextKey(archivus_constants.UserIdKey)).(string)
@@ -240,6 +245,7 @@ func (h *StorageHandler) GetFilesHandler(w http.ResponseWriter, r *http.Request)
 	opts := storage_types.ListOptions{
 		SortBy:      req.SortBy,
 		SortOrder:   req.SortOrder,
+		Category:    req.Category,
 		ContentType: req.ContentType,
 	}
 	page, err := h.service.GetFilesV2(req.Path, req.DriveId, userID, req.Page, req.PageSize, opts)

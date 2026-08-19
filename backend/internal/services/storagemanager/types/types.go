@@ -60,6 +60,102 @@ const (
 	SortOrderDesc = "desc"
 )
 
+// Content-type filter categories. Media categories match by prefix (every
+// subtype); document categories match an explicit set of MIME types; "others"
+// matches everything not covered by any other category.
+const (
+	CategoryImages       = "images"
+	CategoryVideos       = "videos"
+	CategoryAudio        = "audio"
+	CategorySpreadsheets = "spreadsheets"
+	CategoryDocs         = "docs"
+	CategoryPDFs         = "pdfs"
+	CategoryCode         = "code"
+	CategoryOthers       = "others"
+)
+
+// categoryContentTypes maps a category to the content types it covers. An entry
+// ending in "/" is a prefix that matches every subtype (e.g. "image/"). The
+// "others" category is deliberately absent: it is the complement of everything
+// listed here.
+var categoryContentTypes = map[string][]string{
+	CategoryImages: {"image/"},
+	CategoryVideos: {"video/"},
+	CategoryAudio:  {"audio/"},
+	CategorySpreadsheets: {
+		"application/vnd.ms-excel",
+		"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+		"application/vnd.oasis.opendocument.spreadsheet",
+		"application/vnd.apple.numbers",
+		"text/csv",
+		"application/csv",
+		"text/tab-separated-values",
+	},
+	CategoryDocs: {
+		"application/msword",
+		"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		"application/vnd.oasis.opendocument.text",
+		"application/rtf",
+		"application/vnd.apple.pages",
+		"application/vnd.google-apps.document",
+		"text/plain",
+		"text/markdown",
+	},
+	CategoryPDFs: {"application/pdf"},
+	CategoryCode: {
+		"text/x-python", "application/x-python", "text/x-python-script",
+		"text/javascript", "application/javascript", "application/x-javascript", "text/ecmascript",
+		"application/x-typescript", "text/typescript",
+		"text/html", "application/xhtml+xml",
+		"text/css",
+		"text/x-c", "text/x-csrc", "text/x-c++src", "text/x-chdr",
+		"text/x-java", "text/x-java-source",
+		"application/json", "text/json",
+		"text/x-go",
+		"application/x-sh", "text/x-shellscript",
+		"application/x-ruby", "text/x-ruby",
+		"text/x-php",
+		"application/xml", "text/xml",
+		"text/x-yaml", "application/x-yaml", "application/yaml",
+		"text/x-sql", "application/sql",
+		"text/x-rust",
+		"text/x-swift",
+		"application/x-toml", "text/x-toml",
+		"application/x-lua", "text/x-lua",
+	},
+}
+
+// CategoryContentTypes returns the content-type patterns for category. A
+// pattern ending in "/" matches by prefix (every subtype); all others match
+// exactly. It returns nil for "" and for unknown categories (including
+// CategoryOthers, whose membership the caller computes as the complement).
+func CategoryContentTypes(category string) []string {
+	return categoryContentTypes[category]
+}
+
+// Categories returns every named category except "others", in a stable order.
+func Categories() []string {
+	return []string{
+		CategoryImages,
+		CategoryVideos,
+		CategoryAudio,
+		CategorySpreadsheets,
+		CategoryDocs,
+		CategoryPDFs,
+		CategoryCode,
+	}
+}
+
+// ValidCategory reports whether category is one of the known filter categories.
+func ValidCategory(category string) bool {
+	switch category {
+	case CategoryImages, CategoryVideos, CategoryAudio, CategorySpreadsheets,
+		CategoryDocs, CategoryPDFs, CategoryCode, CategoryOthers:
+		return true
+	}
+	return false
+}
+
 // ListOptions controls how a directory listing is ordered and filtered. The
 // zero value is the default listing: files and directories ordered by name
 // ascending, with no content-type filter applied.
@@ -70,8 +166,12 @@ type ListOptions struct {
 	// SortOrder is SortOrderAsc or SortOrderDesc. Unknown or empty values are
 	// treated as ascending.
 	SortOrder string
-	// ContentType, when non-empty, restricts the returned files to those whose
-	// content type matches. Directories are never filtered out.
+	// Category groups the content-type filter into a named category (images,
+	// videos, ...). When set it takes precedence over ContentType.
+	Category string
+	// ContentType, when non-empty (and Category empty), restricts the returned
+	// files to those whose content type matches exactly. Directories are never
+	// filtered out.
 	ContentType string
 }
 

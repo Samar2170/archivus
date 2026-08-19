@@ -459,7 +459,7 @@ func (s *S3Manager) GetFilesV2(relPath, driveId, userId string, page, pageSize i
 	if err != nil {
 		return out, fmt.Errorf("s3manager: count dirs for prefix %q: %w", dirPrefixes, err)
 	}
-	fileCount, err := s.Store.CountFileMetadataByDirPrefix(drive.ID.String(), dirPrefixes, opts.ContentType)
+	fileCount, err := s.Store.CountFileMetadataByDirPrefix(drive.ID.String(), dirPrefixes, opts.Category, opts.ContentType)
 	if err != nil {
 		return out, fmt.Errorf("s3manager: count files for prefix %q: %w", dirPrefixes, err)
 	}
@@ -483,7 +483,7 @@ func (s *S3Manager) GetFilesV2(relPath, driveId, userId string, page, pageSize i
 		}
 	}
 	if window.FileLimit != 0 {
-		files, err := s.Store.GetFileMetadataByDirPrefixPaged(drive.ID.String(), dirPrefixes, window.FileLimit, window.FileOffset, opts.SortBy, opts.SortOrder, opts.ContentType)
+		files, err := s.Store.GetFileMetadataByDirPrefixPaged(drive.ID.String(), dirPrefixes, window.FileLimit, window.FileOffset, opts.SortBy, opts.SortOrder, opts.Category, opts.ContentType)
 		if err != nil {
 			return out, fmt.Errorf("s3manager: list files for prefix %q: %w", dirPrefixes, err)
 		}

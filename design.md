@@ -39,6 +39,8 @@
 11. encrypted folders
 12. both s3 and diskmanager working together (maybe)
 13. cold storage mode
+14. trigger thumbnail generation on upload (async), and on demand for existing files
+15. async delete
 
 
 

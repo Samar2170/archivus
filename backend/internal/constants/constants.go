@@ -58,3 +58,45 @@ const (
 )
 
 type ContextKey string
+
+var FilteringExtensionMap = map[string][]string{
+	"images": {
+		"jpg",
+		"jpeg",
+		"png",
+		"gif",
+		"webp",
+		"bmp",
+		"tiff",
+		"svg",
+		"heic",
+	},
+	"videos": {
+		"mp4",
+		"mov",
+		"mkv",
+		"avi",
+		"webm",
+		"m4v",
+	},
+	"audio": {
+		"mp3",
+		"wav",
+		"flac",
+		"ogg",
+		"m4a",
+	},
+	"spreadsheets": {
+		"xls",
+		"xlsx",
+		"csv",
+		"ods",
+		"odt",
+	},
+	"docs": {
+		"pdf",
+		"doc",
+		"docx",
+		"txt",
+	},
+}

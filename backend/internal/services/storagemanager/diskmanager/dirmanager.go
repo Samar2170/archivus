@@ -173,14 +173,18 @@ func (dm *DiskManager) DeleteDir(relPath, driveId, userId string) error {
 		return fmt.Errorf("diskmanager: get drive by id %q: %w", driveId, err)
 	}
 
-	fullRelPath := filepath.Join(drive.Slug, relPath)
-	dirPath := filepath.Join(dm.Home, fullRelPath)
+	// dirPath is the directory's absolute path key, matching the V2 metadata
+	// convention (UploadFileV2 / CreateDirV2 store absolute paths).
+	dirPath := filepath.Join(dm.Home, drive.Slug, relPath)
 
 	if err := os.RemoveAll(dirPath); err != nil {
 		return fmt.Errorf("storagemanager: delete dir %q: %w", dirPath, err)
 	}
-	if err := dm.Store.DeleteDirectoryMetadataByRelPath(fullRelPath); err != nil {
-		return fmt.Errorf("storagemanager: delete directory metadata for dir %q: %w", dirPath, err)
+	if err := dm.Store.DeleteFileMetadataUnderPath(drive.ID.String(), dirPath); err != nil {
+		return fmt.Errorf("storagemanager: delete file metadata under %q: %w", dirPath, err)
+	}
+	if err := dm.Store.DeleteDirectoryMetadataUnderPath(drive.ID.String(), dirPath); err != nil {
+		return fmt.Errorf("storagemanager: delete directory metadata under %q: %w", dirPath, err)
 	}
 	return nil
 }

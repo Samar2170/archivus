@@ -432,7 +432,7 @@ func versionedKey(key string) string {
 	return fmt.Sprintf("%s.v%d%s", base, time.Now().UnixNano(), ext)
 }
 
-func (s *S3Manager) GetFilesV2(relPath, driveId, userId string, page, pageSize int) (storage_types.PagedDirEntries, error) {
+func (s *S3Manager) GetFilesV2(relPath, driveId, userId string, page, pageSize int, opts storage_types.ListOptions) (storage_types.PagedDirEntries, error) {
 	var out storage_types.PagedDirEntries
 	hasAccess, err := s.CheckUserHasDriveAccess(userId, driveId)
 	if err != nil {
@@ -459,7 +459,7 @@ func (s *S3Manager) GetFilesV2(relPath, driveId, userId string, page, pageSize i
 	if err != nil {
 		return out, fmt.Errorf("s3manager: count dirs for prefix %q: %w", dirPrefixes, err)
 	}
-	fileCount, err := s.Store.CountFileMetadataByDirPrefix(drive.ID.String(), dirPrefixes)
+	fileCount, err := s.Store.CountFileMetadataByDirPrefix(drive.ID.String(), dirPrefixes, opts.Category, opts.ContentType)
 	if err != nil {
 		return out, fmt.Errorf("s3manager: count files for prefix %q: %w", dirPrefixes, err)
 	}
@@ -467,7 +467,7 @@ func (s *S3Manager) GetFilesV2(relPath, driveId, userId string, page, pageSize i
 
 	entries := make([]storage_types.DirEntry, 0, limit)
 	if window.DirLimit != 0 {
-		dirs, err := s.Store.GetDirectoriesByParentPrefixPaged(drive.ID.String(), dirPrefixes, window.DirLimit, window.DirOffset)
+		dirs, err := s.Store.GetDirectoriesByParentPrefixPaged(drive.ID.String(), dirPrefixes, window.DirLimit, window.DirOffset, opts.SortBy, opts.SortOrder)
 		if err != nil {
 			return out, fmt.Errorf("s3manager: list dirs for prefix %q: %w", dirPrefixes, err)
 		}
@@ -477,12 +477,13 @@ func (s *S3Manager) GetFilesV2(relPath, driveId, userId string, page, pageSize i
 				Name:           d.Name,
 				IsDir:          true,
 				Path:           d.PathKey,
+				CreatedAt:      d.CreatedAt,
 				NavigationPath: filepath.Join(relPath, d.Name),
 			})
 		}
 	}
 	if window.FileLimit != 0 {
-		files, err := s.Store.GetFileMetadataByDirPrefixPaged(drive.ID.String(), dirPrefixes, window.FileLimit, window.FileOffset)
+		files, err := s.Store.GetFileMetadataByDirPrefixPaged(drive.ID.String(), dirPrefixes, window.FileLimit, window.FileOffset, opts.SortBy, opts.SortOrder, opts.Category, opts.ContentType)
 		if err != nil {
 			return out, fmt.Errorf("s3manager: list files for prefix %q: %w", dirPrefixes, err)
 		}
@@ -497,6 +498,8 @@ func (s *S3Manager) GetFilesV2(relPath, driveId, userId string, page, pageSize i
 				Size:           f.SizeInMb,
 				Path:           f.PathKey,
 				Thumbnail:      storage_types.ThumbnailURL(f.ThumbnailPath, config.Config.ThumbnailDir),
+				CreatedAt:      f.CreatedAt,
+				ContentType:    f.ContentType,
 				UploadStatus:   f.UploadStatus,
 				NavigationPath: filepath.Join(relPath, f.Name),
 			})

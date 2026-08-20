@@ -211,7 +211,7 @@ func (dm *DiskManager) PendingBacklogFull() (bool, error) {
 	return false, nil
 }
 
-func (dm *DiskManager) GetFilesV2(relPath, driveId, userId string, page, pageSize int) (storage_types.PagedDirEntries, error) {
+func (dm *DiskManager) GetFilesV2(relPath, driveId, userId string, page, pageSize int, opts storage_types.ListOptions) (storage_types.PagedDirEntries, error) {
 	var out storage_types.PagedDirEntries
 	hasAccess, err := dm.CheckUserHasDriveAccess(userId, driveId)
 	if err != nil {
@@ -234,7 +234,7 @@ func (dm *DiskManager) GetFilesV2(relPath, driveId, userId string, page, pageSiz
 	if err != nil {
 		return out, fmt.Errorf("diskmanager: count dirs for prefix %q: %w", dirPrefixes, err)
 	}
-	fileCount, err := dm.Store.CountFileMetadataByDirPrefix(drive.ID.String(), dirPrefixes)
+	fileCount, err := dm.Store.CountFileMetadataByDirPrefix(drive.ID.String(), dirPrefixes, opts.Category, opts.ContentType)
 	if err != nil {
 		return out, fmt.Errorf("diskmanager: count files for prefix %q: %w", dirPrefixes, err)
 	}
@@ -242,7 +242,7 @@ func (dm *DiskManager) GetFilesV2(relPath, driveId, userId string, page, pageSiz
 
 	entries := make([]storage_types.DirEntry, 0, limit)
 	if window.DirLimit != 0 {
-		dirs, err := dm.Store.GetDirectoriesByParentPrefixPaged(drive.ID.String(), dirPrefixes, window.DirLimit, window.DirOffset)
+		dirs, err := dm.Store.GetDirectoriesByParentPrefixPaged(drive.ID.String(), dirPrefixes, window.DirLimit, window.DirOffset, opts.SortBy, opts.SortOrder)
 		if err != nil {
 			return out, fmt.Errorf("diskmanager: list dirs for prefix %q: %w", dirPrefixes, err)
 		}
@@ -252,12 +252,13 @@ func (dm *DiskManager) GetFilesV2(relPath, driveId, userId string, page, pageSiz
 				Name:           d.Name,
 				IsDir:          true,
 				Path:           d.PathKey,
+				CreatedAt:      d.CreatedAt,
 				NavigationPath: filepath.Join(relPath, d.Name),
 			})
 		}
 	}
 	if window.FileLimit != 0 {
-		files, err := dm.Store.GetFileMetadataByDirPrefixPaged(drive.ID.String(), dirPrefixes, window.FileLimit, window.FileOffset)
+		files, err := dm.Store.GetFileMetadataByDirPrefixPaged(drive.ID.String(), dirPrefixes, window.FileLimit, window.FileOffset, opts.SortBy, opts.SortOrder, opts.Category, opts.ContentType)
 		if err != nil {
 			return out, fmt.Errorf("diskmanager: list files for prefix %q: %w", dirPrefixes, err)
 		}
@@ -270,6 +271,8 @@ func (dm *DiskManager) GetFilesV2(relPath, driveId, userId string, page, pageSiz
 				Size:           f.SizeInMb,
 				Path:           f.PathKey,
 				Thumbnail:      storage_types.ThumbnailURL(f.ThumbnailPath, config.Config.ThumbnailDir),
+				CreatedAt:      f.CreatedAt,
+				ContentType:    f.ContentType,
 				UploadStatus:   f.UploadStatus,
 				NavigationPath: filepath.Join(relPath, f.Name),
 			})

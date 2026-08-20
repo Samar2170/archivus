@@ -78,18 +78,31 @@ func (s *S3Manager) DeleteDir(relPath, driveId, userId string) error {
 	if err != nil {
 		return fmt.Errorf("s3manager: get drive %q: %w", driveId, err)
 	}
-	prefix := drive.Slug + "/" + strings.Trim(relPath, "/")
+	trimmed := strings.Trim(relPath, "/")
+	if trimmed == "" {
+		return errors.New("s3manager: cannot delete the drive root")
+	}
+	// dirPathKey is the directory's path key (no trailing slash), matching what
+	// EnsureDirectoryMetadata stores; prefix is the S3 object prefix whose
+	// objects (files plus the trailing-slash directory marker) are removed.
+	dirPathKey := drive.Slug + "/" + trimmed
 	ctx := context.Background()
-	keys, err := s.Client.ListObjects(ctx, s.Client.BucketName, prefix)
+	keys, err := s.Client.ListObjects(ctx, s.Client.BucketName, dirPathKey)
 	if err != nil {
-		return fmt.Errorf("s3manager: list prefix %q: %w", prefix, err)
+		return fmt.Errorf("s3manager: list prefix %q: %w", dirPathKey, err)
 	}
 	if len(keys) > 0 {
 		if err := s.Client.DeleteObjects(ctx, s.Client.BucketName, keys); err != nil {
-			return fmt.Errorf("s3manager: delete prefix %q: %w", prefix, err)
+			return fmt.Errorf("s3manager: delete prefix %q: %w", dirPathKey, err)
 		}
 	}
-	return s.Store.DeleteDirectoryMetadataByRelPath(relPath)
+	if err := s.Store.DeleteFileMetadataUnderPath(drive.ID.String(), dirPathKey); err != nil {
+		return fmt.Errorf("s3manager: delete file metadata under %q: %w", dirPathKey, err)
+	}
+	if err := s.Store.DeleteDirectoryMetadataUnderPath(drive.ID.String(), dirPathKey); err != nil {
+		return fmt.Errorf("s3manager: delete directory metadata under %q: %w", dirPathKey, err)
+	}
+	return nil
 }
 
 func (s *S3Manager) CreateDirV2(subFolder, driveId, userId string) error {

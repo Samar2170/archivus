@@ -4,7 +4,12 @@
 	import { page } from "$app/stores";
 	import { authStore } from "$lib/stores/auth";
 	import { getFiles, deleteFile, downloadFile } from "$lib/api/files";
-	import type { FileMetaData } from "$lib/api/files";
+	import type {
+		FileMetaData,
+		FileCategory,
+		SortBy,
+		SortOrder,
+	} from "$lib/api/files";
 	import Navbar from "$lib/components/Navbar.svelte";
 	import FileCard from "$lib/components/FileCard.svelte";
 	import Breadcrumbs from "$lib/components/Breadcrumbs.svelte";
@@ -15,6 +20,42 @@
 	let files: FileMetaData[] = [];
 	let loading = false;
 	let error = "";
+
+	// Sorting & filtering
+	const sortOptions: {
+		key: string;
+		label: string;
+		sortBy: SortBy;
+		sortOrder: SortOrder;
+	}[] = [
+		{ key: "name-asc", label: "Name (A–Z)", sortBy: "name", sortOrder: "asc" },
+		{ key: "name-desc", label: "Name (Z–A)", sortBy: "name", sortOrder: "desc" },
+		{ key: "size-asc", label: "Size (smallest first)", sortBy: "size", sortOrder: "asc" },
+		{ key: "size-desc", label: "Size (largest first)", sortBy: "size", sortOrder: "desc" },
+		{ key: "created-asc", label: "Oldest first", sortBy: "created_at", sortOrder: "asc" },
+		{ key: "created-desc", label: "Newest first", sortBy: "created_at", sortOrder: "desc" },
+	];
+	let sortKey = "name-asc";
+
+	const categories: { value: FileCategory; label: string }[] = [
+		{ value: "images", label: "Images" },
+		{ value: "videos", label: "Videos" },
+		{ value: "audio", label: "Audio" },
+		{ value: "spreadsheets", label: "Spreadsheets" },
+		{ value: "docs", label: "Docs" },
+		{ value: "pdfs", label: "PDFs" },
+		{ value: "code", label: "Code" },
+		{ value: "others", label: "Others" },
+	];
+	let category: FileCategory | undefined;
+
+	function chipClass(active: boolean): string {
+		return `rounded-full px-3 py-1 text-sm font-medium transition-colors ${
+			active
+				? "bg-orange-600 text-white"
+				: "border border-gray-300 bg-white text-gray-600 hover:bg-orange-50"
+		}`;
+	}
 
 	// Pagination
 	let currentPage = 1;
@@ -61,12 +102,14 @@
 				error = "No drive available for this account.";
 				return;
 			}
-			const result = await getFiles(
-				currentFolder,
-				driveId,
-				currentPage,
+			const sort = sortOptions.find((o) => o.key === sortKey) ?? sortOptions[0];
+			const result = await getFiles(currentFolder, driveId, {
+				page: currentPage,
 				pageSize,
-			);
+				sortBy: sort.sortBy,
+				sortOrder: sort.sortOrder,
+				category,
+			});
 			files = result.files ?? [];
 			total = result.total ?? 0;
 			pageSize = result.pageSize || pageSize;
@@ -87,6 +130,17 @@
 	function goToPage(target: number) {
 		if (target < 1 || target > totalPages || target === currentPage) return;
 		currentPage = target;
+		loadFiles();
+	}
+
+	function changeSort() {
+		currentPage = 1;
+		loadFiles();
+	}
+
+	function setCategory(next: FileCategory | undefined) {
+		category = next;
+		currentPage = 1;
 		loadFiles();
 	}
 
@@ -189,6 +243,40 @@
 			<Breadcrumbs path={currentFolder} />
 		</div>
 
+		<!-- Sort & filter toolbar -->
+		<div class="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+			<div class="flex flex-wrap items-center gap-2">
+				<button
+					on:click={() => setCategory(undefined)}
+					class={chipClass(category === undefined)}
+				>
+					All
+				</button>
+				{#each categories as c (c.value)}
+					<button
+						on:click={() => setCategory(c.value)}
+						class={chipClass(category === c.value)}
+					>
+						{c.label}
+					</button>
+				{/each}
+			</div>
+
+			<div class="flex items-center gap-2">
+				<label for="sort-select" class="text-sm text-gray-500">Sort by</label>
+				<select
+					id="sort-select"
+					bind:value={sortKey}
+					on:change={changeSort}
+					class="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 focus:border-orange-500 focus:outline-none"
+				>
+					{#each sortOptions as o (o.key)}
+						<option value={o.key}>{o.label}</option>
+					{/each}
+				</select>
+			</div>
+		</div>
+
 		<!-- Content -->
 		{#if loading}
 			<div class="flex items-center justify-center py-24">
@@ -204,9 +292,13 @@
 			<div
 				class="flex flex-col items-center justify-center py-24 text-gray-400"
 			>
-				<p class="text-lg font-medium">This folder is empty</p>
+				<p class="text-lg font-medium">
+					{category ? "No matching files" : "This folder is empty"}
+				</p>
 				<p class="text-sm">
-					Upload files or create a folder to get started.
+					{category
+						? "Try a different category or filter."
+						: "Upload files or create a folder to get started."}
 				</p>
 			</div>
 		{:else}

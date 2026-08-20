@@ -12,7 +12,22 @@ export interface FileMetaData {
 	Path: string;
 	NavigationPath: string;
 	Thumbnail: string;
+	CreatedAt?: string;
+	ContentType?: string;
 }
+
+export type FileCategory =
+	| 'images'
+	| 'videos'
+	| 'audio'
+	| 'spreadsheets'
+	| 'docs'
+	| 'pdfs'
+	| 'code'
+	| 'others';
+
+export type SortBy = 'name' | 'size' | 'created_at';
+export type SortOrder = 'asc' | 'desc';
 
 interface FilesResponse {
 	files: FileMetaData[];
@@ -21,15 +36,23 @@ interface FilesResponse {
 	pageSize: number;
 }
 
+export interface GetFilesOptions {
+	page?: number;
+	pageSize?: number;
+	sortBy?: SortBy;
+	sortOrder?: SortOrder;
+	category?: FileCategory;
+}
+
 export async function getFiles(
 	path: string,
 	driveId: string,
-	page = 1,
-	pageSize = 24
+	options: GetFilesOptions = {}
 ): Promise<FilesResponse> {
+	const { page = 1, pageSize = 24, sortBy, sortOrder, category } = options;
 	return apiFetch<FilesResponse>(paths.files, {
 		method: 'POST',
-		body: JSON.stringify({ path, driveId, page, pageSize })
+		body: JSON.stringify({ path, driveId, page, pageSize, sortBy, sortOrder, category })
 	});
 }
 

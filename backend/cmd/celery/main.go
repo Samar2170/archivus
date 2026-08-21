@@ -2,6 +2,7 @@ package main
 
 import (
 	"archivus/internal/config"
+	"archivus/internal/services/oculus"
 	"archivus/internal/services/storagemanager"
 	"archivus/internal/services/storagemanager/diskmanager"
 	"archivus/internal/services/storagemanager/s3manager"
@@ -156,6 +157,13 @@ func runCron(ctx context.Context, s *store.Store) {
 	log.Info().Msg("celery: shutting down")
 }
 
+func runMarkImages(s *store.Store) {
+	service := oculus.NewService(s)
+	if err := service.MarkImages(); err != nil {
+		logging.CronErrorLogger.Error().Err(err).Msg("cron: failed to mark image files")
+	}
+}
+
 func main() {
 	if config.DEBUG {
 		fmt.Println("Warning DEBUG mode is enabled, running in development mode")
@@ -171,6 +179,7 @@ func main() {
 	cronCmd := parser.NewCommand("cron", "Run the periodic job scheduler until interrupted")
 	thumbnailsCmd := parser.NewCommand("thumbnails", "Generate pending thumbnails once and exit")
 	purgeCmd := parser.NewCommand("purge-recycle-bin", "Purge expired recycle bin items once and exit")
+	markImagesCmd := parser.NewCommand("mark-images", "Backfill missing file extensions and mark image files once and exit")
 
 	err = parser.Parse(os.Args)
 	if err != nil {
@@ -208,6 +217,9 @@ func main() {
 	case purgeCmd.Happened():
 		log.Info().Msg("running recycle bin purge")
 		runPurgeRecycleBin(ctx, s)
+	case markImagesCmd.Happened():
+		log.Info().Msg("running image file backfill")
+		runMarkImages(s)
 	default:
 		// No subcommand given: print usage.
 		print(parser.Usage(nil))

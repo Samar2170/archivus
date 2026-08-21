@@ -387,7 +387,7 @@ func (s *Store) UpdateFileMetadataThumbnailPath(id, thumbnailPath string) error 
 
 func (s *Store) GetFileMetadatasWoExtension(limit int) ([]models.FileMetadata, error) {
 	var files []models.FileMetadata
-	result := s.conn().Where("extension = ''").Limit(limit).Find(&files)
+	result := s.conn().Unscoped().Where("extension = ''").Limit(limit).Find(&files)
 	return files, result.Error
 }
 
@@ -397,7 +397,7 @@ func (s *Store) MarkFileMetadatasAsImages(ids []uuid.UUID) error {
 	if len(ids) == 0 {
 		return nil
 	}
-	result := s.conn().Model(&models.FileMetadata{}).Where("id IN ?", ids).Update("is_image", true)
+	result := s.conn().Unscoped().Model(&models.FileMetadata{}).Where("id IN ?", ids).Update("is_image", true)
 	return result.Error
 }
 
@@ -416,7 +416,7 @@ func (s *Store) UpdateFileMetadataExtensions(extensionsByID map[uuid.UUID]string
 		ids = append(ids, id)
 	}
 	caseSQL += "END"
-	result := s.conn().Model(&models.FileMetadata{}).
+	result := s.conn().Unscoped().Model(&models.FileMetadata{}).
 		Where("id IN ?", ids).
 		Update("extension", gorm.Expr(caseSQL, args...))
 	return result.Error

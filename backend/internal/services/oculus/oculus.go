@@ -6,6 +6,7 @@ package oculus
 import (
 	"archivus/internal/models"
 	"archivus/internal/store"
+	"fmt"
 
 	"github.com/google/uuid"
 )
@@ -33,6 +34,7 @@ func (s *Service) MarkImages() error {
 
 	extensionsByID := make(map[uuid.UUID]string, len(fmds))
 	var imageIDs []uuid.UUID
+	fmt.Println("Marking extensions for", len(fmds), "files")
 	for _, fmd := range fmds {
 		ext := models.SplitExtension(fmd.PathKey)
 		if ext == "" {
@@ -43,7 +45,7 @@ func (s *Service) MarkImages() error {
 			imageIDs = append(imageIDs, fmd.ID)
 		}
 	}
-
+	fmt.Println(extensionsByID)
 	if err := s.store.UpdateFileMetadataExtensions(extensionsByID); err != nil {
 		return err
 	}

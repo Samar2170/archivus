@@ -314,13 +314,17 @@ func (s *Store) GetDirectoriesByParentPrefix(driveID string, prefixes [2]string)
 
 // CountFileMetadataByDirPrefix returns the number of files directly under the
 // given directory prefixes, used to page the combined file/directory listing.
-// extensions optionally filters the count to files whose extension is in the
-// list; an empty/nil slice counts all files.
-func (s *Store) CountFileMetadataByDirPrefix(driveID string, prefixes [2]string, extensions []string) (int64, error) {
+// extensions filters the count to files whose extension is in the list; others
+// filters to files whose extension is in none of the known categories. An
+// empty/nil extensions slice with others=false counts all files.
+func (s *Store) CountFileMetadataByDirPrefix(driveID string, prefixes [2]string, extensions []string, others bool) (int64, error) {
 	var count int64
 	q := s.conn().Model(&models.FileMetadata{}).Where("drive_id = ? AND prefix IN ?", driveID, prefixes)
-	if len(extensions) > 0 {
+	switch {
+	case len(extensions) > 0:
 		q = q.Where("extension IN ?", extensions)
+	case others:
+		q = q.Where("extension NOT IN ?", archivus_constants.GetAllExtensions())
 	}
 	result := q.Count(&count)
 	return count, result.Error
@@ -336,16 +340,18 @@ func (s *Store) CountDirectoriesByParentPrefix(driveID string, prefixes [2]strin
 
 // GetFileMetadataByDirPrefixPaged returns files under the given prefixes ordered
 // by sortBy (name, size or created_at) in sortOrder, sliced by limit/offset. A
-// negative limit disables the limit. extensions optionally filters the rows to
-// files whose extension is in the list.
-func (s *Store) GetFileMetadataByDirPrefixPaged(driveID string, prefixes [2]string, limit, offset int, extensions []string, sortBy, sortOrder string) ([]models.FileMetadata, error) {
+// negative limit disables the limit. extensions filters the rows to files whose
+// extension is in the list; others filters to files whose extension is in none
+// of the known categories. An empty/nil extensions slice with others=false
+// applies no extension filter.
+func (s *Store) GetFileMetadataByDirPrefixPaged(driveID string, prefixes [2]string, limit, offset int, extensions []string, others bool, sortBy, sortOrder string) ([]models.FileMetadata, error) {
 	var files []models.FileMetadata
 	q := s.conn().Where("drive_id = ? AND prefix IN ?", driveID, prefixes)
-	if len(extensions) > 0 {
+	switch {
+	case len(extensions) > 0:
 		q = q.Where("extension IN ?", extensions)
-	} else {
-		allExts := archivus_constants.GetAllExtensions()
-		q = q.Where("extension NOT IN ?", allExts)
+	case others:
+		q = q.Where("extension NOT IN ?", archivus_constants.GetAllExtensions())
 	}
 	result := q.Order(fileListOrder(sortBy, sortOrder)).Limit(limit).Offset(offset).Find(&files)
 	return files, result.Error

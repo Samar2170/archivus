@@ -241,8 +241,13 @@ func (h *StorageHandler) GetFilesHandler(w http.ResponseWriter, r *http.Request)
 		SortBy:    req.SortBy,
 		SortOrder: req.SortOrder,
 	}
-	if exts, ok := archivus_constants.FilteringExtensionMap[req.Category]; ok {
-		query.Extensions = exts
+	switch {
+	case req.Category == "others":
+		query.Others = true
+	default:
+		if exts, ok := archivus_constants.FilteringExtensionMap[req.Category]; ok {
+			query.Extensions = exts
+		}
 	}
 	page, err := h.service.GetFilesV2(req.Path, req.DriveId, userID, req.Page, req.PageSize, query)
 	if err != nil {

@@ -58,3 +58,72 @@ const (
 )
 
 type ContextKey string
+
+var FilteringExtensionMap = map[string][]string{
+	"images": {
+		"jpg",
+		"jpeg",
+		"png",
+		"gif",
+		"webp",
+		"bmp",
+		"tiff",
+		"svg",
+		"heic",
+	},
+	"videos": {
+		"mp4",
+		"mov",
+		"mkv",
+		"avi",
+		"webm",
+		"m4v",
+	},
+	"audio": {
+		"mp3",
+		"wav",
+		"flac",
+		"ogg",
+		"m4a",
+	},
+	"spreadsheets": {
+		"xls",
+		"xlsx",
+		"csv",
+		"ods",
+		"odt",
+	},
+	"docs": {
+		"pdf",
+		"doc",
+		"docx",
+		"txt",
+	},
+	"code": {
+		"py",
+		"js",
+		"sh",
+		"go",
+		"java",
+		"c",
+		"cpp",
+		"rs",
+		"ts",
+		"rb",
+		"php",
+		"html",
+		"css",
+		"json",
+		"xml",
+		"yml",
+		"yaml",
+	},
+}
+
+func GetAllExtensions() []string {
+	var allExts []string
+	for _, exts := range FilteringExtensionMap {
+		allExts = append(allExts, exts...)
+	}
+	return allExts
+}

@@ -4,6 +4,7 @@ import (
 	archivus_constants "archivus/internal/constants"
 	"archivus/internal/services/chunkupload"
 	"archivus/internal/services/storagemanager"
+	storage_types "archivus/internal/services/storagemanager/types"
 	reqhelpers "archivus/pkg/reqHelpers"
 	"archivus/pkg/response"
 	"fmt"
@@ -218,10 +219,13 @@ func (h *StorageHandler) DownloadFileHandler(w http.ResponseWriter, r *http.Requ
 
 func (h *StorageHandler) GetFilesHandler(w http.ResponseWriter, r *http.Request) {
 	type getFilesRequest struct {
-		Path     string `json:"path"`
-		DriveId  string `json:"driveId"`
-		Page     int    `json:"page"`
-		PageSize int    `json:"pageSize"`
+		Path      string `json:"path"`
+		DriveId   string `json:"driveId"`
+		Page      int    `json:"page"`
+		PageSize  int    `json:"pageSize"`
+		Category  string `json:"category"`
+		SortBy    string `json:"sortBy"`
+		SortOrder string `json:"sortOrder"`
 	}
 	var req getFilesRequest
 	if err := reqhelpers.DecodeRequest(r, &req); err != nil {
@@ -233,7 +237,19 @@ func (h *StorageHandler) GetFilesHandler(w http.ResponseWriter, r *http.Request)
 		response.UnauthorizedResponse(w, "user ID not found in context")
 		return
 	}
-	page, err := h.service.GetFilesV2(req.Path, req.DriveId, userID, req.Page, req.PageSize)
+	query := storage_types.ListFilesQuery{
+		SortBy:    req.SortBy,
+		SortOrder: req.SortOrder,
+	}
+	switch {
+	case req.Category == "others":
+		query.Others = true
+	default:
+		if exts, ok := archivus_constants.FilteringExtensionMap[req.Category]; ok {
+			query.Extensions = exts
+		}
+	}
+	page, err := h.service.GetFilesV2(req.Path, req.DriveId, userID, req.Page, req.PageSize, query)
 	if err != nil {
 		response.BadRequestResponse(w, err.Error())
 		return

@@ -4,33 +4,12 @@
 package oculus
 
 import (
-	"path/filepath"
-	"strings"
-
+	"archivus/internal/models"
 	"archivus/internal/store"
+	"fmt"
 
 	"github.com/google/uuid"
 )
-
-// imageExtensions are the (dot-less, lowercase) extensions treated as images.
-var imageVideoExtensions = map[string]bool{
-	"jpg":  true,
-	"jpeg": true,
-	"png":  true,
-	"gif":  true,
-	"webp": true,
-	"bmp":  true,
-	"tiff": true,
-	"svg":  true,
-	"heic": true,
-
-	"mp4":  true,
-	"mov":  true,
-	"mkv":  true,
-	"avi":  true,
-	"webm": true,
-	"m4v":  true,
-}
 
 type Service struct {
 	store *store.Store
@@ -55,17 +34,18 @@ func (s *Service) MarkImages() error {
 
 	extensionsByID := make(map[uuid.UUID]string, len(fmds))
 	var imageIDs []uuid.UUID
+	fmt.Println("Marking extensions for", len(fmds), "files")
 	for _, fmd := range fmds {
-		ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(fmd.PathKey), "."))
+		ext := models.SplitExtension(fmd.PathKey)
 		if ext == "" {
 			continue
 		}
 		extensionsByID[fmd.ID] = ext
-		if imageVideoExtensions[ext] {
+		if models.ImageVideoExtensions[ext] {
 			imageIDs = append(imageIDs, fmd.ID)
 		}
 	}
-
+	fmt.Println(extensionsByID)
 	if err := s.store.UpdateFileMetadataExtensions(extensionsByID); err != nil {
 		return err
 	}

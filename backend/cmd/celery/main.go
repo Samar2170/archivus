@@ -62,14 +62,6 @@ func StartScheduler(ctx context.Context, s *store.Store) (*cron.Cron, error) {
 				runProcessPendingUploads(ctx, s)
 			},
 		},
-		{
-			name: "mark-images",
-			spec: "0 */1 * * * *", // every 5 minutes
-			fn: func() {
-				log.Info().Msg("cron: marking image files")
-				runMarkImages(s)
-			},
-		},
 	}
 
 	for _, j := range jobs {
@@ -155,13 +147,6 @@ func runPurgeRecycleBin(ctx context.Context, s *store.Store) {
 	}
 }
 
-func runMarkImages(s *store.Store) {
-	service := oculus.NewService(s)
-	if err := service.MarkImages(); err != nil {
-		logging.CronErrorLogger.Error().Err(err).Msg("cron: failed to mark image files")
-	}
-}
-
 // runCron starts the scheduler and blocks until the process is interrupted.
 func runCron(ctx context.Context, s *store.Store) {
 	if _, err := StartScheduler(ctx, s); err != nil {
@@ -170,6 +155,13 @@ func runCron(ctx context.Context, s *store.Store) {
 
 	<-ctx.Done() // block until interrupted
 	log.Info().Msg("celery: shutting down")
+}
+
+func runMarkImages(s *store.Store) {
+	service := oculus.NewService(s)
+	if err := service.MarkImages(); err != nil {
+		logging.CronErrorLogger.Error().Err(err).Msg("cron: failed to mark image files")
+	}
 }
 
 func main() {
@@ -187,7 +179,7 @@ func main() {
 	cronCmd := parser.NewCommand("cron", "Run the periodic job scheduler until interrupted")
 	thumbnailsCmd := parser.NewCommand("thumbnails", "Generate pending thumbnails once and exit")
 	purgeCmd := parser.NewCommand("purge-recycle-bin", "Purge expired recycle bin items once and exit")
-	markImagesCmd := parser.NewCommand("mark-images", "Mark image files once and exit")
+	markImagesCmd := parser.NewCommand("mark-images", "Backfill missing file extensions and mark image files once and exit")
 
 	err = parser.Parse(os.Args)
 	if err != nil {
@@ -226,7 +218,7 @@ func main() {
 		log.Info().Msg("running recycle bin purge")
 		runPurgeRecycleBin(ctx, s)
 	case markImagesCmd.Happened():
-		log.Info().Msg("running image marking")
+		log.Info().Msg("running image file backfill")
 		runMarkImages(s)
 	default:
 		// No subcommand given: print usage.

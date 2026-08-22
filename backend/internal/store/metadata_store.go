@@ -1,6 +1,7 @@
 package store
 
 import (
+	archivus_constants "archivus/internal/constants"
 	"archivus/internal/models"
 	"context"
 	"fmt"
@@ -342,6 +343,9 @@ func (s *Store) GetFileMetadataByDirPrefixPaged(driveID string, prefixes [2]stri
 	q := s.conn().Where("drive_id = ? AND prefix IN ?", driveID, prefixes)
 	if len(extensions) > 0 {
 		q = q.Where("extension IN ?", extensions)
+	} else {
+		allExts := archivus_constants.GetAllExtensions()
+		q = q.Where("extension NOT IN ?", allExts)
 	}
 	result := q.Order(fileListOrder(sortBy, sortOrder)).Limit(limit).Offset(offset).Find(&files)
 	return files, result.Error

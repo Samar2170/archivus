@@ -99,4 +99,31 @@ var FilteringExtensionMap = map[string][]string{
 		"docx",
 		"txt",
 	},
+	"code": {
+		"py",
+		"js",
+		"sh",
+		"go",
+		"java",
+		"c",
+		"cpp",
+		"rs",
+		"ts",
+		"rb",
+		"php",
+		"html",
+		"css",
+		"json",
+		"xml",
+		"yml",
+		"yaml",
+	},
+}
+
+func GetAllExtensions() []string {
+	var allExts []string
+	for _, exts := range FilteringExtensionMap {
+		allExts = append(allExts, exts...)
+	}
+	return allExts
 }

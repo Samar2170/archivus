@@ -1,5 +1,5 @@
 import { apiFetch, apiUpload } from '$lib/utils/fetcher';
-import { paths, baseUrl } from '$lib/data/constants';
+import { paths, baseUrl, type FileCategory, type SortBy, type SortOrder } from '$lib/data/constants';
 import { authStore } from '$lib/stores/auth';
 
 export interface FileMetaData {
@@ -21,15 +21,30 @@ interface FilesResponse {
 	pageSize: number;
 }
 
+export interface ListFilesOptions {
+	category?: FileCategory | '';
+	sortBy?: SortBy;
+	sortOrder?: SortOrder;
+}
+
 export async function getFiles(
 	path: string,
 	driveId: string,
 	page = 1,
-	pageSize = 24
+	pageSize = 24,
+	options: ListFilesOptions = {}
 ): Promise<FilesResponse> {
 	return apiFetch<FilesResponse>(paths.files, {
 		method: 'POST',
-		body: JSON.stringify({ path, driveId, page, pageSize })
+		body: JSON.stringify({
+			path,
+			driveId,
+			page,
+			pageSize,
+			category: options.category ?? '',
+			sortBy: options.sortBy ?? 'name',
+			sortOrder: options.sortOrder ?? 'asc'
+		})
 	});
 }
 

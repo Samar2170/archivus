@@ -1,6 +1,8 @@
 package models
 
 import (
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -115,7 +117,43 @@ const (
 
 func (f *FileMetadata) BeforeCreate(tx *gorm.DB) (err error) {
 	f.ID = uuid.New()
+	f.Extension = SplitExtension(f.Name)
+	f.IsImage = IsImageName(f.Name)
 	return
+}
+
+// ImageVideoExtensions are the (dot-less, lowercase) extensions treated as
+// image/video files and therefore flagged for thumbnail generation. Shared
+// between the upload path (which sets IsImage at creation time) and the oculus
+// backfill (which repairs legacy rows).
+var ImageVideoExtensions = map[string]bool{
+	"jpg":  true,
+	"jpeg": true,
+	"png":  true,
+	"gif":  true,
+	"webp": true,
+	"bmp":  true,
+	"tiff": true,
+	"svg":  true,
+	"heic": true,
+
+	"mp4":  true,
+	"mov":  true,
+	"mkv":  true,
+	"avi":  true,
+	"webm": true,
+	"m4v":  true,
+}
+
+// SplitExtension returns the lowercase extension of name without the leading
+// dot, e.g. "photo.JPG" -> "jpg". Returns "" when name has no extension.
+func SplitExtension(name string) string {
+	return strings.ToLower(strings.TrimPrefix(filepath.Ext(name), "."))
+}
+
+// IsImageName reports whether name has an image/video extension.
+func IsImageName(name string) bool {
+	return ImageVideoExtensions[SplitExtension(name)]
 }
 
 // RecycleBinItem records a file that was deleted but not yet permanently

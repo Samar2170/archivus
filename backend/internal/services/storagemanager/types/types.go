@@ -35,6 +35,20 @@ type DirEntry struct {
 	NavigationPath string
 }
 
+// ListFilesQuery carries the optional filtering and sorting applied to a file
+// listing. Extensions filters files to the given (dot-less, lowercase)
+// extensions; an empty/nil slice means no filter. Others, when true, filters to
+// files whose extension is NOT in any known category (the "others" bucket).
+// SortBy is one of "name", "size" or "created_at"; SortOrder is "asc" or
+// "desc". Empty values fall back to the defaults (no extension filter, name
+// ascending).
+type ListFilesQuery struct {
+	SortBy     string
+	SortOrder  string
+	Extensions []string
+	Others     bool
+}
+
 // PagedDirEntries is a single page of a directory listing plus the totals the
 // client needs to render pagination controls.
 type PagedDirEntries struct {

@@ -26,8 +26,52 @@
 		return "none";
 	}
 
+	// Canonical MIME type per extension. Download endpoints often send
+	// application/octet-stream, which browsers refuse to render inline, so the
+	// blob is re-typed before creating the preview URL.
+	const mimeByExt: Record<string, string> = {
+		jpg: "image/jpeg",
+		jpeg: "image/jpeg",
+		png: "image/png",
+		gif: "image/gif",
+		webp: "image/webp",
+		svg: "image/svg+xml",
+		mp4: "video/mp4",
+		webm: "video/webm",
+		mov: "video/quicktime",
+		mkv: "video/x-matroska",
+		avi: "video/x-msvideo",
+		m4v: "video/x-m4v",
+		pdf: "application/pdf",
+		txt: "text/plain",
+		md: "text/plain",
+		csv: "text/plain",
+		json: "application/json",
+	};
+
+	function withMime(blob: Blob, ext: string): Blob {
+		const mime = mimeByExt[ext];
+		return mime && blob.type !== mime ? blob.slice(0, blob.size, mime) : blob;
+	}
+
+	// Containers like .mov/.mkv/.avi only play when the browser supports their
+	// codecs, so probe the browser before fetching bytes we may not decode.
+	function canPlayVideo(ext: string): boolean {
+		const probe = document.createElement("video");
+		return probe.canPlayType(mimeByExt[ext] ?? `video/${ext}`) !== "";
+	}
+
 	$: ext = file?.Extension?.toLowerCase().replace(/^\./, "") ?? "";
-	$: kind = previewKind(ext);
+	$: baseKind = previewKind(ext);
+	// HEIC/HEIF and other unknown types fall through to "none": only Safari
+	// decodes HEIC natively, so they get the download CTA instead of a broken
+	// preview. Unplayable video containers get the same treatment.
+	$: kind =
+		baseKind === "video" && !canPlayVideo(ext) ? "none" : baseKind;
+	$: unsupportedReason =
+		baseKind === "video"
+			? "This video format isn't supported by your browser."
+			: "This file type can't be previewed in the browser.";
 
 	let objectUrl = "";
 	let textContent = "";
@@ -70,7 +114,9 @@
 				textContent = await blob.text();
 				if (token !== requestToken) return;
 			} else {
-				objectUrl = URL.createObjectURL(blob);
+				const targetExt =
+					target.Extension?.toLowerCase().replace(/^\./, "") ?? "";
+				objectUrl = URL.createObjectURL(withMime(blob, targetExt));
 			}
 			loadedFileId = target.ID;
 		} catch (err) {
@@ -187,9 +233,7 @@
 						<p class="text-sm font-medium text-gray-700">
 							Preview not available
 						</p>
-						<p class="text-xs text-gray-500">
-							This file type can't be previewed in the browser.
-						</p>
+						<p class="text-xs text-gray-500">{unsupportedReason}</p>
 						<button
 							on:click={() => onDownload(file)}
 							class="mt-1 flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-medium text-white hover:bg-orange-700"

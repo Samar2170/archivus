@@ -40,7 +40,7 @@
 12. both s3 and diskmanager working together (maybe)
 13. cold storage mode
 14. frontend photo viewer
-15. 
+15. async delete
 
 
 

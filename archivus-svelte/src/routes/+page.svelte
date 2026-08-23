@@ -5,6 +5,14 @@
 	import { authStore } from "$lib/stores/auth";
 	import { getFiles, deleteFile, downloadFile } from "$lib/api/files";
 	import type { FileMetaData } from "$lib/api/files";
+	import {
+		fileCategories,
+		sortByOptions,
+		type FileCategory,
+		type SortBy,
+		type SortOrder,
+	} from "$lib/data/constants";
+	import { ArrowDown, ArrowUp, ListFilter } from "lucide-svelte";
 	import Navbar from "$lib/components/Navbar.svelte";
 	import FileCard from "$lib/components/FileCard.svelte";
 	import Breadcrumbs from "$lib/components/Breadcrumbs.svelte";
@@ -15,6 +23,11 @@
 	let files: FileMetaData[] = [];
 	let loading = false;
 	let error = "";
+
+	// Filtering & sorting
+	let category: FileCategory | "" = "";
+	let sortBy: SortBy = "name";
+	let sortOrder: SortOrder = "asc";
 
 	// Pagination
 	let currentPage = 1;
@@ -66,6 +79,7 @@
 				driveId,
 				currentPage,
 				pageSize,
+				{ category, sortBy, sortOrder }
 			);
 			files = result.files ?? [];
 			total = result.total ?? 0;
@@ -87,6 +101,26 @@
 	function goToPage(target: number) {
 		if (target < 1 || target > totalPages || target === currentPage) return;
 		currentPage = target;
+		loadFiles();
+	}
+
+	function applyFilter(nextCategory: FileCategory | "") {
+		if (category === nextCategory) return;
+		category = nextCategory;
+		currentPage = 1;
+		loadFiles();
+	}
+
+	function applySort(nextSortBy: SortBy) {
+		if (sortBy === nextSortBy) return;
+		sortBy = nextSortBy;
+		currentPage = 1;
+		loadFiles();
+	}
+
+	function toggleSortOrder() {
+		sortOrder = sortOrder === "asc" ? "desc" : "asc";
+		currentPage = 1;
 		loadFiles();
 	}
 
@@ -187,6 +221,56 @@
 		<!-- Breadcrumbs -->
 		<div class="mb-4">
 			<Breadcrumbs path={currentFolder} />
+		</div>
+
+		<!-- Filter & sort toolbar -->
+		<div class="mb-4 flex flex-wrap items-center gap-3">
+			<div class="flex flex-wrap items-center gap-1.5">
+				<span
+					class="mr-1 flex items-center gap-1 text-sm font-medium text-gray-500"
+				>
+					<ListFilter class="h-4 w-4" />
+					Filter
+				</span>
+				{#each fileCategories as c}
+					<button
+						on:click={() => applyFilter(c.value)}
+						class="rounded-full border px-3 py-1 text-sm font-medium transition-colors
+							{category === c.value
+								? 'border-orange-500 bg-orange-500 text-white'
+								: 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50'}"
+					>
+						{c.label}
+					</button>
+				{/each}
+			</div>
+
+			<div class="ml-auto flex items-center gap-2">
+				<label for="sort-by" class="text-sm text-gray-500">Sort by</label>
+				<select
+					id="sort-by"
+					value={sortBy}
+					on:change={(e) => applySort((e.target as HTMLSelectElement).value as SortBy)}
+					class="rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm
+						focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
+				>
+					{#each sortByOptions as opt}
+						<option value={opt.value}>{opt.label}</option>
+					{/each}
+				</select>
+				<button
+					on:click={toggleSortOrder}
+					title={sortOrder === "asc" ? "Ascending" : "Descending"}
+					class="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-300
+						bg-white text-gray-600 transition-colors hover:bg-gray-50"
+				>
+					{#if sortOrder === "asc"}
+						<ArrowUp class="h-4 w-4" />
+					{:else}
+						<ArrowDown class="h-4 w-4" />
+					{/if}
+				</button>
+			</div>
 		</div>
 
 		<!-- Content -->

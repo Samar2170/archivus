@@ -19,6 +19,7 @@
 	import FileFolderModal from "$lib/components/FileFolderModal.svelte";
 	import FileContextMenu from "$lib/components/FileContextMenu.svelte";
 	import MoveFileModal from "$lib/components/MoveFileModal.svelte";
+	import FileViewerModal from "$lib/components/FileViewerModal.svelte";
 
 	let files: FileMetaData[] = [];
 	let loading = false;
@@ -58,6 +59,8 @@
 	let movingFile: FileMetaData | null = null;
 	let deletingFile: FileMetaData | null = null;
 	let deleteBusy = false;
+	// The file currently shown in the viewer modal (null = closed).
+	let viewerFile: FileMetaData | null = null;
 	// Set when a long-press opens the menu, so the tap that follows on touch
 	// devices doesn't also open the item.
 	let suppressNextClick = false;
@@ -138,6 +141,10 @@
 		loadFiles();
 	}
 
+	function openViewer(file: FileMetaData) {
+		viewerFile = file;
+	}
+
 	function openItem(file: FileMetaData) {
 		if (suppressNextClick) {
 			suppressNextClick = false;
@@ -147,8 +154,8 @@
 			goto(
 				`/?folder=${encodeURIComponent(file.NavigationPath || file.Path)}`,
 			);
-		} else if (file.SignedUrl) {
-			window.open(file.SignedUrl, "_blank");
+		} else {
+			openViewer(file);
 		}
 	}
 
@@ -176,8 +183,9 @@
 		}
 	}
 
-	async function handleMenuDownload(file: FileMetaData) {
-		menu = null;
+	// Fetch the file as a blob and trigger a browser download. Shared by the
+	// card download icon, the context menu and the viewer's download CTA.
+	async function downloadBlob(file: FileMetaData) {
 		const driveId = $authStore.driveId;
 		if (!driveId) return;
 		try {
@@ -191,6 +199,11 @@
 		} catch (err) {
 			alert("Download failed: " + (err as Error).message);
 		}
+	}
+
+	async function handleMenuDownload(file: FileMetaData) {
+		menu = null;
+		await downloadBlob(file);
 	}
 
 	async function confirmDelete() {
@@ -309,7 +322,7 @@
 						on:pointerleave={clearLongPress}
 						class="outline-none"
 					>
-						<FileCard {file} />
+						<FileCard {file} on:download={() => downloadBlob(file)} />
 					</div>
 				{/each}
 			</div>
@@ -354,6 +367,14 @@
 	</main>
 
 	<FileFolderModal {currentFolder} on:refresh={loadFiles} />
+
+	<!-- File preview viewer -->
+	<FileViewerModal
+		file={viewerFile}
+		open={viewerFile !== null}
+		onClose={() => (viewerFile = null)}
+		onDownload={downloadBlob}
+	/>
 
 	<!-- Right-click / long-press context menu -->
 	{#if menu}

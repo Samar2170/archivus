@@ -34,11 +34,13 @@
 6. Docs parse and save content, indexing, search
 7. Thumbnail fix [X]
 8. chunk uploads for syncer, large uploads [X]
-9. filter/sort
+9. filter/sort [X]
 10. search
 11. encrypted folders
 12. both s3 and diskmanager working together (maybe)
 13. cold storage mode
+14. frontend photo viewer
+15. async delete
 
 
 

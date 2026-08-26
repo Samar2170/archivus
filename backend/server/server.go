@@ -38,6 +38,13 @@ func GetServer(authService *auth.AuthService) *http.Server {
 	protected.HandleFunc("/auth/user/info", authHandler.GetUserInfoHandler).Methods(http.MethodGet)
 	protected.HandleFunc("/auth/drive/info", authHandler.GetDriveInfoHandler).Methods(http.MethodGet)
 
+	// API keys: created by logged-in users for programmatic clients; the
+	// plaintext key is returned only by the create endpoint.
+	apiKeyHandler := handlers.NewApiKeyHandler(authService)
+	protected.HandleFunc("/auth/apikey/create", apiKeyHandler.CreateApiKey).Methods(http.MethodPost)
+	protected.HandleFunc("/auth/apikey/list", apiKeyHandler.GetApiKeys).Methods(http.MethodGet)
+	protected.HandleFunc("/auth/apikey/revoke", apiKeyHandler.RevokeApiKey).Methods(http.MethodPost)
+
 	chunkManager := chunkupload.NewManager(config.Config.ArchivusHome)
 	storageHandler := handlers.NewStorageHandler(authService.StorageManager, chunkManager)
 	protected.HandleFunc("/storage/folder/create", storageHandler.CreateFolder).Methods(http.MethodPost)

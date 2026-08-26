@@ -2,6 +2,7 @@ package server
 
 import (
 	archivus_constants "archivus/internal/constants"
+	"archivus/internal/models"
 	"archivus/internal/services/auth"
 	"archivus/pkg/response"
 	"context"
@@ -21,7 +22,7 @@ func CORSMiddleware(next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-API-Key")
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
 		}
 
@@ -45,6 +46,24 @@ func HomeMiddleware(as *auth.AuthService) func(next http.Handler) http.Handler {
 func AuthMiddleware(as *auth.AuthService) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Either an API key or a Bearer token authenticates the request.
+			if apiKey := r.Header.Get(archivus_constants.ApiKeyHeader); apiKey != "" {
+				key, err := as.ValidateApiKey(apiKey)
+				if err != nil {
+					response.UnauthorizedResponse(w, err.Error())
+					return
+				}
+				// Read-level keys may only perform read-only HTTP methods;
+				// anything that mutates state requires a write-level key.
+				if !isReadOnlyMethod(r.Method) && !models.CompareAccessLevels(key.AccessLevel, models.AccessLevelWrite) {
+					response.ForbiddenResponse(w, "api key does not have write access")
+					return
+				}
+				ctx := context.WithValue(r.Context(), archivus_constants.ContextKey(archivus_constants.UserIdKey), key.UserID.String())
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
+
 			authHeader := r.Header.Get("Authorization")
 			if !strings.HasPrefix(authHeader, "Bearer ") {
 				response.UnauthorizedResponse(w, "missing or invalid authorization header")
@@ -62,4 +81,8 @@ func AuthMiddleware(as *auth.AuthService) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+func isReadOnlyMethod(method string) bool {
+	return method == http.MethodGet || method == http.MethodHead || method == http.MethodOptions
 }

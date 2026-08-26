@@ -2,7 +2,7 @@
 	import { goto } from "$app/navigation";
 	import { page } from "$app/stores";
 	import { authStore } from "$lib/stores/auth";
-	import { Menu, X, Home, LogOut, Trash2, HardDrive } from "lucide-svelte";
+	import { Menu, X, Home, LogOut, Trash2, HardDrive, KeyRound } from "lucide-svelte";
 
 	let mobileOpen = false;
 
@@ -10,6 +10,7 @@
 		{ label: "Home", href: "/", icon: Home },
 		{ label: "Recycle Bin", href: "/recyclebin", icon: Trash2 },
 		{ label: "Drive", href: "/drive", icon: HardDrive },
+		{ label: "API Keys", href: "/apikeys", icon: KeyRound },
 	];
 
 	function signout() {

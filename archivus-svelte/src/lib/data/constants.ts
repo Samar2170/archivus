@@ -19,7 +19,10 @@ export const paths = {
 	fileMove: '/storage/file/move',
 	fileDelete: '/storage/file/delete',
 	recycleBin: '/storage/recyclebin',
-	recycleBinRestore: '/storage/recyclebin/restore'
+	recycleBinRestore: '/storage/recyclebin/restore',
+	apiKeyCreate: '/auth/apikey/create',
+	apiKeyList: '/auth/apikey/list',
+	apiKeyRevoke: '/auth/apikey/revoke'
 } as const;
 
 // Category filter values accepted by the file listing endpoint. The empty

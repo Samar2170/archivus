@@ -31,6 +31,14 @@ type testEnv struct {
 // filesystem directory — no network, no shared state between tests.
 func newTestServer(t *testing.T) *testEnv {
 	t.Helper()
+	e, _ := newTestServerWithStore(t)
+	return e
+}
+
+// newTestServerWithStore also hands back the underlying store, for tests
+// that need to touch rows the HTTP API cannot reach.
+func newTestServerWithStore(t *testing.T) (*testEnv, *store.Store) {
+	t.Helper()
 
 	tmpDir := t.TempDir()
 	configDir := filepath.Join(tmpDir, ".archivus")
@@ -70,7 +78,7 @@ func newTestServer(t *testing.T) *testEnv {
 	ts := httptest.NewServer(server.GetServer(&as).Handler)
 	t.Cleanup(ts.Close)
 
-	return &testEnv{url: ts.URL, ts: ts}
+	return &testEnv{url: ts.URL, ts: ts}, s
 }
 
 // ---- HTTP helpers ----

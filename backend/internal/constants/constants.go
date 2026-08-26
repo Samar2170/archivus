@@ -9,6 +9,17 @@ const (
 	MinPasswordLength = 8
 	PINLength         = 6
 
+	// ApiKeyHeader is the HTTP header clients use to authenticate with an
+	// API key instead of a Bearer token.
+	ApiKeyHeader = "X-API-Key"
+	// ApiKeyValidityDays is how long a newly issued API key remains valid.
+	ApiKeyValidityDays = 90
+	// ApiKeyLength is the number of random alphanumeric characters in a
+	// generated API key.
+	ApiKeyLength = 32
+	// ApiKeyNameMaxLength bounds the user-provided label of an API key.
+	ApiKeyNameMaxLength = 64
+
 	SettingsDir    = ".archivus"
 	ConfigFileName = "config.yaml"
 

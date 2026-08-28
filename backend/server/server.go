@@ -67,6 +67,9 @@ func GetServer(authService *auth.AuthService) *http.Server {
 
 	protected.HandleFunc("/storage/recyclebin", storageHandler.GetRecycleBinHandler).Methods(http.MethodPost)
 	protected.HandleFunc("/storage/recyclebin/restore", storageHandler.RestoreFileHandler).Methods(http.MethodPost)
+	// Permanently deletes a recycle bin item (file or folder) on demand,
+	// bypassing the remaining retention window.
+	protected.HandleFunc("/storage/recyclebin/purge", storageHandler.PurgeRecycleBinItemHandler).Methods(http.MethodPost)
 
 	// Serve generated thumbnail images as static files. Thumbnails are loaded via
 	// <img> tags which cannot send Authorization headers, so this route is public;

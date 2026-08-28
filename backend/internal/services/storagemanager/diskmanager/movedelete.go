@@ -199,3 +199,40 @@ func (dm *DiskManager) purgeFileItem(it models.RecycleBinItem) error {
 	}
 	return nil
 }
+
+// PurgeRecycleBinItem permanently deletes a single recycle bin item — file or
+// folder — right away, instead of waiting for its retention window to elapse.
+// Requires write access to the drive the item was deleted from.
+func (dm *DiskManager) PurgeRecycleBinItem(recycleBinId, driveId, userId string) error {
+	hasAccess, err := dm.CheckUserDriveWriteAccess(userId, driveId)
+	if err != nil {
+		return err
+	}
+	if !hasAccess {
+		return errors.New("user does not have write access to this drive")
+	}
+	drive, err := dm.Store.GetDriveByID(driveId)
+	if err != nil {
+		return fmt.Errorf("diskmanager: get drive by id %q: %w", driveId, err)
+	}
+	item, err := dm.Store.GetRecycleBinItemByID(recycleBinId)
+	if err != nil {
+		return fmt.Errorf("diskmanager: get recycle bin item %q: %w", recycleBinId, err)
+	}
+	if item.DriveID != drive.ID {
+		return errors.New("recycle bin item does not belong to this drive")
+	}
+	if item.IsDir {
+		if err := dm.purgeFolderItem(item); err != nil {
+			return fmt.Errorf("diskmanager: purge folder item %q: %w", item.RecyclePathKey, err)
+		}
+	} else {
+		if err := dm.purgeFileItem(item); err != nil {
+			return fmt.Errorf("diskmanager: purge file item %q: %w", item.RecyclePathKey, err)
+		}
+	}
+	if err := dm.Store.DeleteRecycleBinItemByID(item.ID.String()); err != nil {
+		return fmt.Errorf("diskmanager: delete recycle bin item after purge: %w", err)
+	}
+	return nil
+}

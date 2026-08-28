@@ -199,3 +199,40 @@ func (s *S3Manager) purgeFileItem(it models.RecycleBinItem) error {
 	}
 	return nil
 }
+
+// PurgeRecycleBinItem permanently deletes a single recycle bin item — file or
+// folder — right away, instead of waiting for its retention window to elapse.
+// Requires write access to the drive the item was deleted from.
+func (s *S3Manager) PurgeRecycleBinItem(recycleBinId, driveId, userId string) error {
+	hasAccess, err := s.CheckUserDriveWriteAccess(userId, driveId)
+	if err != nil {
+		return err
+	}
+	if !hasAccess {
+		return errors.New("user does not have write access to this drive")
+	}
+	drive, err := s.Store.GetDriveByID(driveId)
+	if err != nil {
+		return fmt.Errorf("s3manager: get drive %q: %w", driveId, err)
+	}
+	item, err := s.Store.GetRecycleBinItemByID(recycleBinId)
+	if err != nil {
+		return fmt.Errorf("s3manager: get recycle bin item %q: %w", recycleBinId, err)
+	}
+	if item.DriveID != drive.ID {
+		return errors.New("recycle bin item does not belong to this drive")
+	}
+	if item.IsDir {
+		if err := s.purgeFolderItem(item); err != nil {
+			return fmt.Errorf("s3manager: purge folder item %q: %w", item.RecyclePathKey, err)
+		}
+	} else {
+		if err := s.purgeFileItem(item); err != nil {
+			return fmt.Errorf("s3manager: purge file item %q: %w", item.RecyclePathKey, err)
+		}
+	}
+	if err := s.Store.DeleteRecycleBinItemByID(item.ID.String()); err != nil {
+		return fmt.Errorf("s3manager: delete recycle bin item after purge: %w", err)
+	}
+	return nil
+}

@@ -62,4 +62,8 @@ type StorageManager interface {
 	RestoreFile(recycleBinId, driveId, userId string) error
 	ListRecycleBin(driveId, userId string) ([]storage_types.RecycleEntry, error)
 	PurgeExpiredRecycleBin(ctx context.Context) error
+	// PurgeRecycleBinItem permanently deletes a single recycle bin item — file
+	// or folder — right away, instead of waiting for its retention window to
+	// elapse and the cron purge to reach it.
+	PurgeRecycleBinItem(recycleBinId, driveId, userId string) error
 }

@@ -748,4 +748,146 @@ func TestFileManagement(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("purge api permanently deletes a recycled file", func(t *testing.T) {
+		up := e.uploadFiles(t, "documents", driveID, token, map[string][]byte{
+			"purge-me.txt": []byte("purge me immediately"),
+		})
+		if up.status != http.StatusOK {
+			t.Fatalf("upload status %d body %v", up.status, up.body)
+		}
+		listing := e.doJSON(t, http.MethodPost, "/storage/files", map[string]any{
+			"path":    "documents",
+			"driveId": driveID,
+		}, token)
+		var fileID string
+		for _, f := range listing.body["files"].([]any) {
+			entry, _ := f.(map[string]any)
+			if entry["Name"] == "purge-me.txt" {
+				fileID, _ = entry["ID"].(string)
+				break
+			}
+		}
+		if fileID == "" {
+			t.Fatal("uploaded file not found in documents listing")
+		}
+
+		del := e.doJSON(t, http.MethodPost, "/storage/file/delete", map[string]any{
+			"fileId":  fileID,
+			"driveId": driveID,
+		}, token)
+		if del.status != http.StatusOK {
+			t.Fatalf("file delete status %d body %v", del.status, del.body)
+		}
+
+		bin := e.doJSON(t, http.MethodPost, "/storage/recyclebin", map[string]any{
+			"driveId": driveID,
+		}, token)
+		var itemID string
+		for _, i := range bin.body["items"].([]any) {
+			entry, _ := i.(map[string]any)
+			if entry["Name"] == "purge-me.txt" {
+				itemID, _ = entry["ID"].(string)
+				break
+			}
+		}
+		if itemID == "" {
+			t.Fatal("'purge-me.txt' not found in recycle bin after file delete")
+		}
+
+		purge := e.doJSON(t, http.MethodPost, "/storage/recyclebin/purge", map[string]any{
+			"recycleBinId": itemID,
+			"driveId":      driveID,
+		}, token)
+		if purge.status != http.StatusOK {
+			t.Fatalf("purge status %d body %v", purge.status, purge.body)
+		}
+
+		bin = e.doJSON(t, http.MethodPost, "/storage/recyclebin", map[string]any{
+			"driveId": driveID,
+		}, token)
+		for _, i := range bin.body["items"].([]any) {
+			entry, _ := i.(map[string]any)
+			if entry["Name"] == "purge-me.txt" {
+				t.Fatal("'purge-me.txt' should be gone from the recycle bin after purge")
+			}
+		}
+	})
+
+	t.Run("purge api permanently deletes a recycled folder", func(t *testing.T) {
+		create := e.doJSON(t, http.MethodPost, "/storage/folder/create", map[string]any{
+			"path":    "documents/soon-gone",
+			"driveId": driveID,
+		}, token)
+		if create.status != http.StatusOK {
+			t.Fatalf("create status %d body %v", create.status, create.body)
+		}
+		up := e.uploadFiles(t, "documents/soon-gone", driveID, token, map[string][]byte{
+			"inside.txt": []byte("folder content"),
+		})
+		if up.status != http.StatusOK {
+			t.Fatalf("upload status %d body %v", up.status, up.body)
+		}
+
+		del := e.doJSON(t, http.MethodPost, "/storage/folder/delete", map[string]any{
+			"path":    "documents/soon-gone",
+			"driveId": driveID,
+		}, token)
+		if del.status != http.StatusOK {
+			t.Fatalf("folder delete status %d body %v", del.status, del.body)
+		}
+
+		bin := e.doJSON(t, http.MethodPost, "/storage/recyclebin", map[string]any{
+			"driveId": driveID,
+		}, token)
+		var itemID string
+		for _, i := range bin.body["items"].([]any) {
+			entry, _ := i.(map[string]any)
+			if entry["Name"] == "soon-gone" {
+				itemID, _ = entry["ID"].(string)
+				break
+			}
+		}
+		if itemID == "" {
+			t.Fatal("'soon-gone' not found in recycle bin after folder delete")
+		}
+
+		purge := e.doJSON(t, http.MethodPost, "/storage/recyclebin/purge", map[string]any{
+			"recycleBinId": itemID,
+			"driveId":      driveID,
+		}, token)
+		if purge.status != http.StatusOK {
+			t.Fatalf("purge status %d body %v", purge.status, purge.body)
+		}
+
+		bin = e.doJSON(t, http.MethodPost, "/storage/recyclebin", map[string]any{
+			"driveId": driveID,
+		}, token)
+		for _, i := range bin.body["items"].([]any) {
+			entry, _ := i.(map[string]any)
+			if entry["Name"] == "soon-gone" {
+				t.Fatal("'soon-gone' should be gone from the recycle bin after purge")
+			}
+		}
+
+		drive, err := s.GetDriveByID(driveID)
+		if err != nil {
+			t.Fatalf("get drive: %v", err)
+		}
+		dirPath := filepath.Join(config.Config.ArchivusHome, drive.Slug, "documents", "soon-gone")
+		if _, statErr := os.Stat(dirPath); !os.IsNotExist(statErr) {
+			t.Fatalf("purged folder bytes still on disk at %q", dirPath)
+		}
+
+		listing := e.doJSON(t, http.MethodPost, "/storage/files", map[string]any{
+			"path":    "documents",
+			"driveId": driveID,
+		}, token)
+		for _, f := range listing.body["files"].([]any) {
+			entry, _ := f.(map[string]any)
+			if entry["Name"] == "soon-gone" {
+				t.Fatal("purged 'soon-gone' metadata rows should be gone from listings too")
+			}
+		}
+	})
 }

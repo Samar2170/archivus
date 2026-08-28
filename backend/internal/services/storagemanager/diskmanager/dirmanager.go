@@ -5,7 +5,6 @@ import (
 	"archivus/internal/models"
 	"archivus/internal/services/storagemanager/base"
 	"archivus/internal/store"
-	"archivus/pkg/logging"
 	"errors"
 	"fmt"
 	"os"
@@ -282,25 +281,23 @@ func (dm *DiskManager) restoreFolder(item models.RecycleBinItem) error {
 
 // purgeFolderItem permanently removes a recycled folder: the relocated bytes,
 // every thumbnail of the files that lived inside it, and their hidden metadata
-// rows. Errors are logged with the cron logger; the caller keeps going through
-// the remaining items.
+// rows. It returns any failure so callers decide how to surface it — the cron
+// purge logs and moves on, the immediate-purge API reports it to the user.
 func (dm *DiskManager) purgeFolderItem(it models.RecycleBinItem) error {
 	thumbs, err := dm.Store.ListHiddenFolderThumbnails(it.DriveID.String(), it.OriginalPathKey, it.CreatedAt)
 	if err != nil {
-		logging.CronErrorLogger.Error().Err(err).Str("path", it.OriginalPathKey).Msg("cron: purge: failed to list hidden folder thumbnails")
-	} else {
-		for _, thumb := range thumbs {
-			if err := os.Remove(thumb); err != nil && !os.IsNotExist(err) {
-				logging.CronErrorLogger.Error().Err(err).Str("path", thumb).Msg("cron: purge: failed to remove thumbnail")
-			}
+		return fmt.Errorf("list hidden folder thumbnails for %q: %w", it.OriginalPathKey, err)
+	}
+	for _, thumb := range thumbs {
+		if err := os.Remove(thumb); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove thumbnail %q: %w", thumb, err)
 		}
 	}
 	if err := os.RemoveAll(filepath.Dir(it.RecyclePathKey)); err != nil {
-		logging.CronErrorLogger.Error().Err(err).Str("path", it.RecyclePathKey).Msg("cron: purge: failed to remove recycled folder")
-		return err
+		return fmt.Errorf("remove recycled folder %q: %w", it.RecyclePathKey, err)
 	}
 	if err := dm.Store.HardDeleteHiddenFolderSubtree(it.DriveID.String(), it.OriginalPathKey, it.CreatedAt); err != nil {
-		logging.CronErrorLogger.Error().Err(err).Str("path", it.OriginalPathKey).Msg("cron: purge: failed to delete hidden folder rows")
+		return fmt.Errorf("delete hidden folder rows under %q: %w", it.OriginalPathKey, err)
 	}
 	return nil
 }

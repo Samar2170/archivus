@@ -4,6 +4,7 @@
 	import { page } from "$app/stores";
 	import { authStore } from "$lib/stores/auth";
 	import { getFiles, deleteFile, downloadFile } from "$lib/api/files";
+	import { deleteFolder } from "$lib/api/folder";
 	import type { FileMetaData } from "$lib/api/files";
 	import {
 		fileCategories,
@@ -212,7 +213,13 @@
 		if (!driveId) return;
 		deleteBusy = true;
 		try {
-			await deleteFile(deletingFile.ID, driveId);
+			if (deletingFile.IsDir) {
+				// Folders are deleted by drive-relative path; the folder and
+				// everything inside it moves to the recycle bin as one unit.
+				await deleteFolder(deletingFile.NavigationPath, driveId);
+			} else {
+				await deleteFile(deletingFile.ID, driveId);
+			}
 			deletingFile = null;
 			await loadFiles();
 		} catch (err) {
@@ -418,13 +425,14 @@
 		>
 			<div class="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
 				<h2 class="mb-2 text-lg font-semibold text-gray-900">
-					Delete file
+					{deletingFile.IsDir ? "Delete folder" : "Delete file"}
 				</h2>
 				<p class="mb-5 text-sm text-gray-600">
 					Move <span class="font-medium text-gray-800"
 						>{deletingFile.Name}</span
-					> to the recycle bin? It will be kept for 30 days before being permanently
-					removed.
+					>
+					{deletingFile.IsDir ? "and everything inside it " : ""}to the recycle
+					bin? It will be kept for 30 days before being permanently removed.
 				</p>
 				<div class="flex justify-end gap-2">
 					<button

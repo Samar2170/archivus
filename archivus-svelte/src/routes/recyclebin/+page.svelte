@@ -2,15 +2,23 @@
 	import { onMount } from "svelte";
 	import { goto } from "$app/navigation";
 	import { authStore } from "$lib/stores/auth";
-	import { getRecycleBin, restoreFile, type RecycleEntry } from "$lib/api/files";
+	import {
+		getRecycleBin,
+		restoreFile,
+		purgeRecycleBinItem,
+		type RecycleEntry
+	} from "$lib/api/files";
 	import Navbar from "$lib/components/Navbar.svelte";
-	import { RotateCcw, Trash2, Loader2 } from "lucide-svelte";
+	import { RotateCcw, Trash2, Loader2, Folder, File } from "lucide-svelte";
 
 	let items: RecycleEntry[] = [];
 	let loading = false;
 	let error = "";
 	// IDs currently being restored, to disable their row buttons.
 	let restoring = new Set<string>();
+	// Item awaiting a "delete forever" confirmation, and whether it's running.
+	let purgingItem: RecycleEntry | null = null;
+	let purgeBusy = false;
 
 	async function load() {
 		loading = true;
@@ -43,6 +51,24 @@
 			const next = new Set(restoring);
 			next.delete(item.ID);
 			restoring = next;
+		}
+	}
+
+	// handlePurge permanently deletes the confirmed item right away, skipping
+	// the remainder of its 30 day retention window. This cannot be undone.
+	async function confirmPurge() {
+		const item = purgingItem;
+		const driveId = $authStore.driveId;
+		if (!item || !driveId) return;
+		purgeBusy = true;
+		try {
+			await purgeRecycleBinItem(item.ID, driveId);
+			items = items.filter((i) => i.ID !== item.ID);
+			purgingItem = null;
+		} catch (err) {
+			alert("Delete forever failed: " + (err as Error).message);
+		} finally {
+			purgeBusy = false;
 		}
 	}
 
@@ -117,23 +143,28 @@
 				<div
 					class="hidden grid-cols-12 gap-4 border-b border-gray-100 px-4 py-3 text-xs font-medium uppercase tracking-wide text-gray-400 sm:grid"
 				>
-					<div class="col-span-5">Name</div>
+					<div class="col-span-4">Name</div>
 					<div class="col-span-2">Size</div>
 					<div class="col-span-2">Deleted</div>
 					<div class="col-span-2">Purges in</div>
-					<div class="col-span-1"></div>
+					<div class="col-span-2"></div>
 				</div>
 
 				{#each items as item (item.ID)}
 					<div
 						class="grid grid-cols-2 items-center gap-x-4 gap-y-1 border-b border-gray-50 px-4 py-3 last:border-b-0 sm:grid-cols-12"
 					>
-						<div class="col-span-2 min-w-0 sm:col-span-5">
+						<div class="col-span-2 min-w-0 sm:col-span-4">
 							<p
-								class="truncate text-sm font-medium text-gray-800"
+								class="flex items-center gap-1.5 truncate text-sm font-medium text-gray-800"
 								title={item.Name}
 							>
-								{item.Name}
+								{#if item.IsDir}
+									<Folder class="h-4 w-4 shrink-0 text-orange-500" />
+								{:else}
+									<File class="h-4 w-4 shrink-0 text-gray-400" />
+								{/if}
+								<span class="truncate">{item.Name}</span>
 							</p>
 							<p
 								class="truncate text-xs text-gray-400"
@@ -158,10 +189,10 @@
 								{daysLeft(item.ExpiresAt)} day{daysLeft(item.ExpiresAt) === 1 ? "" : "s"}
 							</span>
 						</div>
-						<div class="col-span-2 flex justify-start sm:col-span-1 sm:justify-end">
+						<div class="col-span-2 flex justify-start gap-2 sm:col-span-2 sm:justify-end">
 							<button
 								on:click={() => handleRestore(item)}
-								disabled={restoring.has(item.ID)}
+								disabled={restoring.has(item.ID) || purgeBusy}
 								class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm
 									font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
 								title="Restore to original location"
@@ -173,10 +204,55 @@
 								{/if}
 								Restore
 							</button>
+							<button
+								on:click={() => (purgingItem = item)}
+								disabled={restoring.has(item.ID) || purgeBusy}
+								class="flex items-center gap-1.5 rounded-lg border border-red-300 px-3 py-1.5 text-sm
+									font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+								title="Delete permanently without waiting for the retention window"
+							>
+								<Trash2 class="h-4 w-4" />
+								Delete forever
+							</button>
 						</div>
 					</div>
 				{/each}
 			</div>
 		{/if}
 	</main>
+
+	<!-- Delete forever confirmation -->
+	{#if purgingItem}
+		<div
+			class="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm"
+		>
+			<div class="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+				<h2 class="mb-2 text-lg font-semibold text-gray-900">
+					Delete {purgingItem.IsDir ? "folder" : "file"} forever
+				</h2>
+				<p class="mb-5 text-sm text-gray-600">
+					Permanently delete
+					<span class="font-medium text-gray-800">{purgingItem.Name}</span>
+					{purgingItem.IsDir ? "and everything inside it" : ""} right now? This
+					cannot be undone.
+				</p>
+				<div class="flex justify-end gap-2">
+					<button
+						on:click={() => (purgingItem = null)}
+						disabled={purgeBusy}
+						class="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+					>
+						Cancel
+					</button>
+					<button
+						on:click={confirmPurge}
+						disabled={purgeBusy}
+						class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+					>
+						{purgeBusy ? "Deleting…" : "Delete forever"}
+					</button>
+				</div>
+			</div>
+		</div>
+	{/if}
 </div>

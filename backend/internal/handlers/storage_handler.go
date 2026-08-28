@@ -62,7 +62,7 @@ func (h *StorageHandler) DeleteFolder(w http.ResponseWriter, r *http.Request) {
 		response.BadRequestResponse(w, err.Error())
 		return
 	}
-	response.JSONResponse(w, map[string]string{"message": "folder deleted"})
+	response.JSONResponse(w, map[string]string{"message": "folder moved to recycle bin"})
 }
 
 func (h *StorageHandler) UploadFileHandler(w http.ResponseWriter, r *http.Request) {

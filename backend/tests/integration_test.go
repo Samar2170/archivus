@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"archivus/internal/config"
 	"archivus/internal/models"
@@ -433,7 +435,7 @@ func TestAuthFlow(t *testing.T) {
 // ====================================================================
 
 func TestFileManagement(t *testing.T) {
-	e := newTestServer(t)
+	e, s := newTestServerWithStore(t)
 
 	// --- setup: register + login ---
 	registerUser(t, e, "samar", "password12", "123456", "samar@example.com", true, "")
@@ -577,7 +579,7 @@ func TestFileManagement(t *testing.T) {
 		}
 	})
 
-	t.Run("delete folder", func(t *testing.T) {
+	t.Run("delete folder moves it to recycle bin", func(t *testing.T) {
 		r := e.doJSON(t, http.MethodPost, "/storage/folder/delete", map[string]any{
 			"path":    "documents/reports",
 			"driveId": driveID,
@@ -585,7 +587,7 @@ func TestFileManagement(t *testing.T) {
 		if r.status != http.StatusOK {
 			t.Fatalf("status %d body %v", r.status, r.body)
 		}
-		if r.body["message"] != "folder deleted" {
+		if r.body["message"] != "folder moved to recycle bin" {
 			t.Fatalf("unexpected body: %v", r.body)
 		}
 	})
@@ -605,6 +607,144 @@ func TestFileManagement(t *testing.T) {
 			entry, _ := f.(map[string]any)
 			if entry["Name"] == "reports" {
 				t.Fatal("'reports' subfolder should be gone after deletion")
+			}
+		}
+	})
+
+	var reportsRecycleBinID string
+
+	t.Run("deleted folder shows up in recycle bin", func(t *testing.T) {
+		r := e.doJSON(t, http.MethodPost, "/storage/recyclebin", map[string]any{
+			"driveId": driveID,
+		}, token)
+		if r.status != http.StatusOK {
+			t.Fatalf("status %d body %v", r.status, r.body)
+		}
+		items, _ := r.body["items"].([]any)
+		for _, i := range items {
+			entry, _ := i.(map[string]any)
+			if entry["Name"] == "reports" {
+				isDir, _ := entry["IsDir"].(bool)
+				if !isDir {
+					t.Fatal("'reports' recycle bin entry should be marked IsDir")
+				}
+				reportsRecycleBinID, _ = entry["ID"].(string)
+				return
+			}
+		}
+		t.Fatalf("'reports' not found in recycle bin listing: %v", items)
+	})
+
+	t.Run("restored folder returns to its original location", func(t *testing.T) {
+		r := e.doJSON(t, http.MethodPost, "/storage/recyclebin/restore", map[string]any{
+			"recycleBinId": reportsRecycleBinID,
+			"driveId":      driveID,
+		}, token)
+		if r.status != http.StatusOK {
+			t.Fatalf("status %d body %v", r.status, r.body)
+		}
+
+		listing := e.doJSON(t, http.MethodPost, "/storage/files", map[string]any{
+			"path":    "documents",
+			"driveId": driveID,
+		}, token)
+		if listing.status != http.StatusOK {
+			t.Fatalf("status %d body %v", listing.status, listing.body)
+		}
+		var found bool
+		for _, f := range listing.body["files"].([]any) {
+			entry, _ := f.(map[string]any)
+			if entry["Name"] == "reports" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatal("'reports' subfolder should be back in the documents listing after restore")
+		}
+
+		contents := e.doJSON(t, http.MethodPost, "/storage/files", map[string]any{
+			"path":    "documents/reports",
+			"driveId": driveID,
+		}, token)
+		if contents.status != http.StatusOK {
+			t.Fatalf("status %d body %v", contents.status, contents.body)
+		}
+		names := map[string]bool{}
+		for _, f := range contents.body["files"].([]any) {
+			entry, _ := f.(map[string]any)
+			name, _ := entry["Name"].(string)
+			names[name] = true
+		}
+		for _, want := range []string{"test.txt", "alpha.txt", "beta.txt"} {
+			if !names[want] {
+				t.Fatalf("file %q missing inside restored folder; got %v", want, names)
+			}
+		}
+	})
+
+	t.Run("purge removes an expired recycled folder permanently", func(t *testing.T) {
+		r := e.doJSON(t, http.MethodPost, "/storage/folder/delete", map[string]any{
+			"path":    "documents/reports",
+			"driveId": driveID,
+		}, token)
+		if r.status != http.StatusOK {
+			t.Fatalf("delete status %d body %v", r.status, r.body)
+		}
+
+		bin := e.doJSON(t, http.MethodPost, "/storage/recyclebin", map[string]any{
+			"driveId": driveID,
+		}, token)
+		items, _ := bin.body["items"].([]any)
+		var itemID string
+		for _, i := range items {
+			entry, _ := i.(map[string]any)
+			if entry["Name"] == "reports" {
+				itemID, _ = entry["ID"].(string)
+				break
+			}
+		}
+		if itemID == "" {
+			t.Fatal("'reports' recycle bin entry not found after delete")
+		}
+
+		// Fast-forward past the 30 day retention window and run the purge job.
+		if err := s.DB.Model(&models.RecycleBinItem{}).Where("id = ?", itemID).
+			Update("expires_at", time.Now().Add(-time.Hour)).Error; err != nil {
+			t.Fatalf("expire recycle bin item: %v", err)
+		}
+		dm := diskmanager.GetDiskManager(s, config.Config.ArchivusHome)
+		if err := dm.PurgeExpiredRecycleBin(context.Background()); err != nil {
+			t.Fatalf("PurgeExpiredRecycleBin: %v", err)
+		}
+
+		bin = e.doJSON(t, http.MethodPost, "/storage/recyclebin", map[string]any{
+			"driveId": driveID,
+		}, token)
+		for _, i := range bin.body["items"].([]any) {
+			entry, _ := i.(map[string]any)
+			if entry["Name"] == "reports" {
+				t.Fatal("expired 'reports' entry should be purged from the recycle bin")
+			}
+		}
+
+		drive, err := s.GetDriveByID(driveID)
+		if err != nil {
+			t.Fatalf("get drive: %v", err)
+		}
+		dirPath := filepath.Join(config.Config.ArchivusHome, drive.Slug, "documents", "reports")
+		if _, statErr := os.Stat(dirPath); !os.IsNotExist(statErr) {
+			t.Fatalf("purged folder bytes still on disk at %q", dirPath)
+		}
+
+		listing := e.doJSON(t, http.MethodPost, "/storage/files", map[string]any{
+			"path":    "documents",
+			"driveId": driveID,
+		}, token)
+		for _, f := range listing.body["files"].([]any) {
+			entry, _ := f.(map[string]any)
+			if entry["Name"] == "reports" {
+				t.Fatal("purged 'reports' metadata rows should be gone from listings too")
 			}
 		}
 	})

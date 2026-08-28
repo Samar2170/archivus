@@ -183,6 +183,12 @@ type RecycleBinItem struct {
 	ContentType   string  `gorm:"not null;default:''"`
 	ThumbnailPath string  `gorm:"not null;default:''"` // preserved so purge can clean it up
 
+	// IsDir marks items that were a folder (and its entire contents) rather
+	// than a single file. The RecyclePathKey of a folder item points at the
+	// whole relocated directory tree; its metadata rows are kept but
+	// soft-deleted until the folder is restored or purged.
+	IsDir bool `gorm:"not null;default:false"`
+
 	// ExpiresAt is when the item becomes eligible for permanent deletion.
 	ExpiresAt time.Time `gorm:"index"`
 }

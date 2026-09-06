@@ -13,6 +13,10 @@ type StorageManager interface {
 	DeleteDriveDir(driveName string) error
 
 	CreateDir(subFolder, driveId, userId string) error
+	// DeleteDir moves relPath's folder — and everything inside it — into the
+	// recycle bin, where it stays for the retention window before being
+	// permanently purged, mirroring DeleteFileV2 for folders. The drive root
+	// itself cannot be deleted.
 	DeleteDir(relPath, driveId, userId string) error
 	// DirExists reports whether relPath (relative to the drive root) is an
 	// existing folder in the drive. An empty relPath means the drive root, which
@@ -58,4 +62,8 @@ type StorageManager interface {
 	RestoreFile(recycleBinId, driveId, userId string) error
 	ListRecycleBin(driveId, userId string) ([]storage_types.RecycleEntry, error)
 	PurgeExpiredRecycleBin(ctx context.Context) error
+	// PurgeRecycleBinItem permanently deletes a single recycle bin item — file
+	// or folder — right away, instead of waiting for its retention window to
+	// elapse and the cron purge to reach it.
+	PurgeRecycleBinItem(recycleBinId, driveId, userId string) error
 }

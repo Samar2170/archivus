@@ -2,6 +2,7 @@ package s3manager
 
 import (
 	archivus_constants "archivus/internal/constants"
+	"archivus/internal/models"
 	"archivus/pkg/logging"
 	"context"
 	"errors"
@@ -97,7 +98,7 @@ func (s *S3Manager) DeleteFileV2(fileId, driveId, userId string) error {
 	}
 
 	expiresAt := time.Now().AddDate(0, 0, archivus_constants.RecycleBinRetentionDays)
-	if _, err := s.Store.CreateRecycleBinItem(md.Name, md.PathKey, md.Prefix, recycleKey, md.ContentType, md.ThumbnailPath, driveId, userId, md.SizeInMb, expiresAt); err != nil {
+	if _, err := s.Store.CreateRecycleBinItem(md.Name, md.PathKey, md.Prefix, recycleKey, md.ContentType, md.ThumbnailPath, driveId, userId, md.SizeInMb, expiresAt, false); err != nil {
 		// Try to restore the object so the delete is not silently lost.
 		if rerr := s.Client.CopyObject(ctx, s.Client.BucketName, recycleKey, md.PathKey); rerr == nil {
 			_ = s.Client.DeleteObject(ctx, s.Client.BucketName, recycleKey)
@@ -133,6 +134,11 @@ func (s *S3Manager) RestoreFile(recycleBinId, driveId, userId string) error {
 	if item.DriveID != drive.ID {
 		return errors.New("recycle bin item does not belong to this drive")
 	}
+	// Folder items move their whole tree back and revive the metadata rows
+	// hidden when the folder was deleted; files follow the classic path.
+	if item.IsDir {
+		return s.restoreFolder(item)
+	}
 	ctx := context.Background()
 	if err := s.Client.CopyObject(ctx, s.Client.BucketName, item.RecyclePathKey, item.OriginalPathKey); err != nil {
 		return fmt.Errorf("s3manager: restore object to %q: %w", item.OriginalPathKey, err)
@@ -161,19 +167,72 @@ func (s *S3Manager) PurgeExpiredRecycleBin(ctx context.Context) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := s.Client.DeleteObject(ctx, s.Client.BucketName, it.RecyclePathKey); err != nil {
-			logging.CronErrorLogger.Error().Err(err).Str("key", it.RecyclePathKey).Msg("cron: purge: failed to delete recycled object")
-			continue
+		var purgeErr error
+		if it.IsDir {
+			purgeErr = s.purgeFolderItem(it)
+		} else {
+			purgeErr = s.purgeFileItem(it)
 		}
-		if it.ThumbnailPath != "" {
-			if err := os.Remove(it.ThumbnailPath); err != nil && !os.IsNotExist(err) {
-				logging.CronErrorLogger.Error().Err(err).Str("path", it.ThumbnailPath).Msg("cron: purge: failed to remove thumbnail")
-			}
+		if purgeErr != nil {
+			logging.CronErrorLogger.Error().Err(purgeErr).Str("key", it.RecyclePathKey).Msg("cron: purge: failed to remove recycled item")
+			continue
 		}
 		if err := s.Store.DeleteRecycleBinItemByID(it.ID.String()); err != nil {
 			logging.CronErrorLogger.Error().Err(err).Str("id", it.ID.String()).Msg("cron: purge: failed to delete recycle bin row")
 		}
 	}
 	log.Info().Int("count", len(items)).Msg("s3manager: purged expired recycle bin items")
+	return nil
+}
+
+// purgeFileItem permanently removes a recycled file: its object and any local
+// thumbnail.
+func (s *S3Manager) purgeFileItem(it models.RecycleBinItem) error {
+	ctx := context.Background()
+	if err := s.Client.DeleteObject(ctx, s.Client.BucketName, it.RecyclePathKey); err != nil {
+		return fmt.Errorf("delete recycled object %q: %w", it.RecyclePathKey, err)
+	}
+	if it.ThumbnailPath != "" {
+		if err := os.Remove(it.ThumbnailPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove thumbnail %q: %w", it.ThumbnailPath, err)
+		}
+	}
+	return nil
+}
+
+// PurgeRecycleBinItem permanently deletes a single recycle bin item — file or
+// folder — right away, instead of waiting for its retention window to elapse.
+// Requires write access to the drive the item was deleted from.
+func (s *S3Manager) PurgeRecycleBinItem(recycleBinId, driveId, userId string) error {
+	hasAccess, err := s.CheckUserDriveWriteAccess(userId, driveId)
+	if err != nil {
+		return err
+	}
+	if !hasAccess {
+		return errors.New("user does not have write access to this drive")
+	}
+	drive, err := s.Store.GetDriveByID(driveId)
+	if err != nil {
+		return fmt.Errorf("s3manager: get drive %q: %w", driveId, err)
+	}
+	item, err := s.Store.GetRecycleBinItemByID(recycleBinId)
+	if err != nil {
+		return fmt.Errorf("s3manager: get recycle bin item %q: %w", recycleBinId, err)
+	}
+	if item.DriveID != drive.ID {
+		return errors.New("recycle bin item does not belong to this drive")
+	}
+	if item.IsDir {
+		if err := s.purgeFolderItem(item); err != nil {
+			return fmt.Errorf("s3manager: purge folder item %q: %w", item.RecyclePathKey, err)
+		}
+	} else {
+		if err := s.purgeFileItem(item); err != nil {
+			return fmt.Errorf("s3manager: purge file item %q: %w", item.RecyclePathKey, err)
+		}
+	}
+	if err := s.Store.DeleteRecycleBinItemByID(item.ID.String()); err != nil {
+		return fmt.Errorf("s3manager: delete recycle bin item after purge: %w", err)
+	}
 	return nil
 }

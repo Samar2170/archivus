@@ -1,13 +1,20 @@
 package s3manager
 
 import (
+	archivus_constants "archivus/internal/constants"
+	"archivus/internal/models"
 	"archivus/internal/services/storagemanager/base"
 	"archivus/internal/store"
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 )
 
 type S3Manager struct {
@@ -66,6 +73,31 @@ func (s *S3Manager) CreateDir(subFolder, driveId, userId string) error {
 	return nil
 }
 
+// s3DeleteBatchSize is the maximum number of object keys a single
+// DeleteObjects request may carry.
+const s3DeleteBatchSize = 1000
+
+// deleteObjectsBatched deletes any number of keys by splitting them into
+// protocol-sized batches.
+func (s *S3Manager) deleteObjectsBatched(ctx context.Context, keys []string) error {
+	for start := 0; start < len(keys); start += s3DeleteBatchSize {
+		end := start + s3DeleteBatchSize
+		if end > len(keys) {
+			end = len(keys)
+		}
+		if err := s.Client.DeleteObjects(ctx, s.Client.BucketName, keys[start:end]); err != nil {
+			return fmt.Errorf("batched delete of %d objects: %w", len(keys), err)
+		}
+	}
+	return nil
+}
+
+// DeleteDir moves relPath's folder — and everything inside it — into the recycle
+// bin, where it stays for the retention window before being permanently purged
+// (mirroring DeleteFileV2 for folders). Every object under the folder prefix is
+// copied under the recycle bin key prefix and deleted at its original key; the
+// folder's metadata rows are soft-deleted in place so a restore can put them
+// back unchanged.
 func (s *S3Manager) DeleteDir(relPath, driveId, userId string) error {
 	hasAccess, err := s.CheckUserDriveWriteAccess(userId, driveId)
 	if err != nil {
@@ -78,18 +110,183 @@ func (s *S3Manager) DeleteDir(relPath, driveId, userId string) error {
 	if err != nil {
 		return fmt.Errorf("s3manager: get drive %q: %w", driveId, err)
 	}
-	prefix := drive.Slug + "/" + strings.Trim(relPath, "/")
-	ctx := context.Background()
-	keys, err := s.Client.ListObjects(ctx, s.Client.BucketName, prefix)
-	if err != nil {
-		return fmt.Errorf("s3manager: list prefix %q: %w", prefix, err)
+	trimmed := strings.Trim(relPath, "/")
+	if trimmed == "" {
+		return errors.New("cannot delete the drive root")
 	}
-	if len(keys) > 0 {
-		if err := s.Client.DeleteObjects(ctx, s.Client.BucketName, keys); err != nil {
-			return fmt.Errorf("s3manager: delete prefix %q: %w", prefix, err)
+	pathKey := drive.Slug + "/" + trimmed
+	rootRow, err := s.Store.GetDirectoryByDrivePathKey(drive.ID.String(), pathKey)
+	if err != nil {
+		return fmt.Errorf("s3manager: get directory metadata %q: %w", pathKey, err)
+	}
+	subtree, err := s.Store.ListFolderSubtreeUnscoped(drive.ID.String(), pathKey)
+	if err != nil {
+		return fmt.Errorf("s3manager: list folder subtree %q: %w", pathKey, err)
+	}
+	var sizeInMb float64
+	for _, f := range subtree.Files {
+		if !f.DeletedAt.Valid {
+			sizeInMb += f.SizeInMb
 		}
 	}
-	return s.Store.DeleteDirectoryMetadataByRelPath(relPath)
+
+	ctx := context.Background()
+	keys, err := s.Client.ListObjects(ctx, s.Client.BucketName, pathKey+"/")
+	if err != nil {
+		return fmt.Errorf("s3manager: list prefix %q: %w", pathKey+"/", err)
+	}
+
+	recyclePrefix := archivus_constants.RecycleBinDirName + "/" + uuid.New().String()
+	copiedKeys := make([]string, 0, len(keys))
+	unwindCopies := func() {
+		if err := s.deleteObjectsBatched(ctx, copiedKeys); err != nil {
+			log.Warn().Err(err).Msg("s3manager: failed to roll back recycled copies after delete error")
+		}
+	}
+	for _, k := range keys {
+		dst := recyclePrefix + "/" + k
+		if err := s.Client.CopyObject(ctx, s.Client.BucketName, k, dst); err != nil {
+			unwindCopies()
+			return fmt.Errorf("s3manager: copy %q to recycle bin: %w", k, err)
+		}
+		copiedKeys = append(copiedKeys, dst)
+	}
+	if len(keys) > 0 {
+		if err := s.deleteObjectsBatched(ctx, keys); err != nil {
+			s.copyRecycledBack(ctx, recyclePrefix, keys)
+			return fmt.Errorf("s3manager: delete original objects under %q: %w", pathKey+"/", err)
+		}
+	}
+
+	expiresAt := time.Now().AddDate(0, 0, archivus_constants.RecycleBinRetentionDays)
+	err = s.Store.Transaction(func(tx *store.Store) error {
+		if _, err := tx.CreateRecycleBinItem(rootRow.Name, rootRow.PathKey, rootRow.Prefix, recyclePrefix, "", "", driveId, userId, sizeInMb, expiresAt, true); err != nil {
+			return err
+		}
+		return tx.HideFolderSubtree(driveId, pathKey)
+	})
+	if err != nil {
+		// Put the originals back so nothing is silently lost.
+		s.copyRecycledBack(ctx, recyclePrefix, keys)
+		return fmt.Errorf("s3manager: record recycle bin item for folder %q: %w", pathKey, err)
+	}
+	return nil
+}
+
+// copyRecycledBack copies each recycled object back to its original key and
+// removes the recycled copy. Best-effort rollback helper; failures are logged,
+// never returned.
+func (s *S3Manager) copyRecycledBack(ctx context.Context, recyclePrefix string, originalKeys []string) {
+	recycledKeys := make([]string, 0, len(originalKeys))
+	for _, k := range originalKeys {
+		src := recyclePrefix + "/" + k
+		if err := s.Client.CopyObject(ctx, s.Client.BucketName, src, k); err != nil {
+			log.Warn().Err(err).Str("key", src).Msg("s3manager: failed to restore object during rollback")
+			continue
+		}
+		recycledKeys = append(recycledKeys, src)
+	}
+	if err := s.deleteObjectsBatched(ctx, recycledKeys); err != nil {
+		log.Warn().Err(err).Msg("s3manager: failed to remove recycled copies during rollback")
+	}
+}
+
+// restoreFolder moves a recycled folder tree back to its original keys and
+// reactivates its soft-deleted metadata rows.
+func (s *S3Manager) restoreFolder(item models.RecycleBinItem) error {
+	ctx := context.Background()
+	rbPrefix := item.RecyclePathKey + "/"
+	recycledKeys, err := s.Client.ListObjects(ctx, s.Client.BucketName, rbPrefix)
+	if err != nil {
+		return fmt.Errorf("s3manager: list recycled folder objects %q: %w", rbPrefix, err)
+	}
+	existing, err := s.Client.ListObjects(ctx, s.Client.BucketName, item.OriginalPathKey+"/")
+	if err == nil && len(existing) > 0 {
+		return errors.New("a folder already exists at the original location")
+	}
+
+	restoredKeys := make([]string, 0, len(recycledKeys))
+	unwindRestores := func() {
+		for _, orig := range restoredKeys {
+			if rerr := s.Client.CopyObject(ctx, s.Client.BucketName, orig, rbPrefix+orig); rerr != nil {
+				log.Warn().Err(rerr).Str("key", orig).Msg("s3manager: failed to re-recycle object after restore error")
+			}
+		}
+	}
+	for _, k := range recycledKeys {
+		dst := strings.TrimPrefix(k, rbPrefix)
+		if dst == "" || strings.HasSuffix(dst, "/") {
+			continue // directory marker placeholders carry no content of their own
+		}
+		if err := s.Client.CopyObject(ctx, s.Client.BucketName, k, dst); err != nil {
+			unwindRestores()
+			return fmt.Errorf("s3manager: restore object to %q: %w", dst, err)
+		}
+		restoredKeys = append(restoredKeys, dst)
+	}
+	if len(recycledKeys) > 0 {
+		if err := s.deleteObjectsBatched(ctx, recycledKeys); err != nil {
+			log.Warn().Err(err).Msg("s3manager: failed to remove recycled objects after restore")
+		}
+	}
+
+	if err := s.Store.UnhideFolderSubtree(item.DriveID.String(), item.OriginalPathKey, item.CreatedAt); err != nil {
+		s.copyRecycledBackToBin(ctx, rbPrefix, restoredKeys)
+		return fmt.Errorf("s3manager: restore folder metadata for %q: %w", item.OriginalPathKey, err)
+	}
+	if err := s.Store.DeleteRecycleBinItemByID(item.ID.String()); err != nil {
+		return fmt.Errorf("s3manager: delete recycle bin item after restore: %w", err)
+	}
+	return nil
+}
+
+// copyRecycledBackToBin is the inverse of copyRecycledBack: best-effort return
+// of already-restored objects into their recycle bin locations after a failed
+// restore. Failures are logged, never returned.
+func (s *S3Manager) copyRecycledBackToBin(ctx context.Context, rbPrefix string, restoredOriginalKeys []string) {
+	recycledKeys := make([]string, 0, len(restoredOriginalKeys))
+	for _, orig := range restoredOriginalKeys {
+		dst := rbPrefix + orig
+		if err := s.Client.CopyObject(ctx, s.Client.BucketName, orig, dst); err != nil {
+			log.Warn().Err(err).Str("key", orig).Msg("s3manager: failed to re-recycle object after restore db error")
+			continue
+		}
+		recycledKeys = append(recycledKeys, orig)
+	}
+	if err := s.deleteObjectsBatched(ctx, recycledKeys); err != nil {
+		log.Warn().Err(err).Msg("s3manager: failed to remove restored originals during rollback")
+	}
+}
+
+// purgeFolderItem permanently removes a recycled folder: every object under its
+// recycle bin prefix, every thumbnail of the files that lived inside it, and
+// their hidden metadata rows. It returns any failure so callers decide how to
+// surface it — the cron purge logs and moves on, the immediate-purge API
+// reports it to the user.
+func (s *S3Manager) purgeFolderItem(it models.RecycleBinItem) error {
+	ctx := context.Background()
+	thumbs, err := s.Store.ListHiddenFolderThumbnails(it.DriveID.String(), it.OriginalPathKey, it.CreatedAt)
+	if err != nil {
+		return fmt.Errorf("list hidden folder thumbnails for %q: %w", it.OriginalPathKey, err)
+	}
+	for _, thumb := range thumbs {
+		if err := os.Remove(thumb); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove thumbnail %q: %w", thumb, err)
+		}
+	}
+	keys, err := s.Client.ListObjects(ctx, s.Client.BucketName, it.RecyclePathKey+"/")
+	if err != nil {
+		return fmt.Errorf("list recycled folder objects %q: %w", it.RecyclePathKey, err)
+	}
+	if len(keys) > 0 {
+		if err := s.deleteObjectsBatched(ctx, keys); err != nil {
+			return fmt.Errorf("delete recycled folder objects under %q: %w", it.RecyclePathKey, err)
+		}
+	}
+	if err := s.Store.HardDeleteHiddenFolderSubtree(it.DriveID.String(), it.OriginalPathKey, it.CreatedAt); err != nil {
+		return fmt.Errorf("delete hidden folder rows under %q: %w", it.OriginalPathKey, err)
+	}
+	return nil
 }
 
 func (s *S3Manager) CreateDirV2(subFolder, driveId, userId string) error {

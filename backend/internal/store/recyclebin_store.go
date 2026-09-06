@@ -8,9 +8,10 @@ import (
 	"github.com/google/uuid"
 )
 
-// CreateRecycleBinItem records a deleted file in the recycle bin. expiresAt is
-// when it becomes eligible for permanent removal by the purge job.
-func (s *Store) CreateRecycleBinItem(name, originalPathKey, originalPrefix, recyclePathKey, contentType, thumbnailPath, driveID, deletedByID string, sizeInMb float64, expiresAt time.Time) (models.RecycleBinItem, error) {
+// CreateRecycleBinItem records a deleted file (or, when isDir is true, a whole
+// folder) in the recycle bin. expiresAt is when it becomes eligible for
+// permanent removal by the purge job.
+func (s *Store) CreateRecycleBinItem(name, originalPathKey, originalPrefix, recyclePathKey, contentType, thumbnailPath, driveID, deletedByID string, sizeInMb float64, expiresAt time.Time, isDir bool) (models.RecycleBinItem, error) {
 	driveIDParsed, err := uuid.Parse(driveID)
 	if err != nil {
 		return models.RecycleBinItem{}, fmt.Errorf("invalid drive ID: %w", err)
@@ -30,6 +31,7 @@ func (s *Store) CreateRecycleBinItem(name, originalPathKey, originalPrefix, recy
 		DeletedByID:     deletedByIDParsed,
 		SizeInMb:        sizeInMb,
 		ExpiresAt:       expiresAt,
+		IsDir:           isDir,
 	}
 	result := s.conn().Create(&item)
 	return item, result.Error

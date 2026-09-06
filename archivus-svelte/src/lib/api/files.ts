@@ -100,6 +100,7 @@ export async function deleteFile(fileId: string, driveId: string): Promise<void>
 export interface RecycleEntry {
 	ID: string;
 	Name: string;
+	IsDir: boolean;
 	Size: number;
 	ContentType: string;
 	OriginalPath: string;
@@ -122,6 +123,16 @@ export async function getRecycleBin(driveId: string): Promise<RecycleBinResponse
 // restoreFile moves a recycle bin item back to its original location.
 export async function restoreFile(recycleBinId: string, driveId: string): Promise<void> {
 	await apiFetch(paths.recycleBinRestore, {
+		method: 'POST',
+		body: JSON.stringify({ recycleBinId, driveId })
+	});
+}
+
+// purgeRecycleBinItem permanently deletes a single recycle bin item (file or
+// folder) immediately, skipping the remaining 30 day retention window. This
+// cannot be undone.
+export async function purgeRecycleBinItem(recycleBinId: string, driveId: string): Promise<void> {
+	await apiFetch(paths.recycleBinPurge, {
 		method: 'POST',
 		body: JSON.stringify({ recycleBinId, driveId })
 	});

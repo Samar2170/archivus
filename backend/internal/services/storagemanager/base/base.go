@@ -69,6 +69,7 @@ func (b *BaseManager) ListRecycleBin(driveId, userId string) ([]storage_types.Re
 		entries = append(entries, storage_types.RecycleEntry{
 			ID:           it.ID.String(),
 			Name:         it.Name,
+			IsDir:        it.IsDir,
 			Size:         it.SizeInMb,
 			ContentType:  it.ContentType,
 			OriginalPath: it.OriginalPathKey,

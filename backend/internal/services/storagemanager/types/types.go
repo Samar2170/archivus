@@ -7,10 +7,12 @@ import (
 	"time"
 )
 
-// RecycleEntry is a single file held in the recycle bin, as shown to the user.
+// RecycleEntry is a single item held in the recycle bin, as shown to the user.
+// A folder entry represents the folder and everything that was inside it.
 type RecycleEntry struct {
 	ID           string
 	Name         string
+	IsDir        bool
 	Size         float64
 	ContentType  string
 	OriginalPath string

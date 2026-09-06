@@ -2,6 +2,7 @@ package diskmanager
 
 import (
 	archivus_constants "archivus/internal/constants"
+	"archivus/internal/models"
 	"archivus/pkg/logging"
 	"context"
 	"errors"
@@ -94,7 +95,7 @@ func (dm *DiskManager) DeleteFileV2(fileId, driveId, userId string) error {
 	}
 
 	expiresAt := time.Now().AddDate(0, 0, archivus_constants.RecycleBinRetentionDays)
-	if _, err := dm.Store.CreateRecycleBinItem(md.Name, md.PathKey, md.Prefix, recyclePathKey, md.ContentType, md.ThumbnailPath, driveId, userId, md.SizeInMb, expiresAt); err != nil {
+	if _, err := dm.Store.CreateRecycleBinItem(md.Name, md.PathKey, md.Prefix, recyclePathKey, md.ContentType, md.ThumbnailPath, driveId, userId, md.SizeInMb, expiresAt, false); err != nil {
 		if rerr := os.Rename(recyclePathKey, md.PathKey); rerr != nil {
 			log.Warn().Err(rerr).Msg("diskmanager: failed to restore file after recycle bin db error")
 		}
@@ -126,6 +127,11 @@ func (dm *DiskManager) RestoreFile(recycleBinId, driveId, userId string) error {
 	}
 	if item.DriveID != drive.ID {
 		return errors.New("recycle bin item does not belong to this drive")
+	}
+	// Folder items move their whole tree back and revive the metadata rows
+	// hidden when the folder was deleted; files follow the classic path.
+	if item.IsDir {
+		return dm.restoreFolder(item)
 	}
 	if _, err := os.Stat(item.OriginalPathKey); err == nil {
 		return errors.New("a file already exists at the original location")
@@ -162,19 +168,71 @@ func (dm *DiskManager) PurgeExpiredRecycleBin(ctx context.Context) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := os.RemoveAll(filepath.Dir(it.RecyclePathKey)); err != nil {
-			logging.CronErrorLogger.Error().Err(err).Str("path", it.RecyclePathKey).Msg("cron: purge: failed to remove recycled file")
-			continue
+		var purgeErr error
+		if it.IsDir {
+			purgeErr = dm.purgeFolderItem(it)
+		} else {
+			purgeErr = dm.purgeFileItem(it)
 		}
-		if it.ThumbnailPath != "" {
-			if err := os.Remove(it.ThumbnailPath); err != nil && !os.IsNotExist(err) {
-				logging.CronErrorLogger.Error().Err(err).Str("path", it.ThumbnailPath).Msg("cron: purge: failed to remove thumbnail")
-			}
+		if purgeErr != nil {
+			logging.CronErrorLogger.Error().Err(purgeErr).Str("path", it.RecyclePathKey).Msg("cron: purge: failed to remove recycled item")
+			continue
 		}
 		if err := dm.Store.DeleteRecycleBinItemByID(it.ID.String()); err != nil {
 			logging.CronErrorLogger.Error().Err(err).Str("id", it.ID.String()).Msg("cron: purge: failed to delete recycle bin row")
 		}
 	}
 	log.Info().Int("count", len(items)).Msg("diskmanager: purged expired recycle bin items")
+	return nil
+}
+
+// purgeFileItem permanently removes a recycled file: its bytes and any
+// thumbnail.
+func (dm *DiskManager) purgeFileItem(it models.RecycleBinItem) error {
+	if err := os.RemoveAll(filepath.Dir(it.RecyclePathKey)); err != nil {
+		return fmt.Errorf("remove recycled file %q: %w", it.RecyclePathKey, err)
+	}
+	if it.ThumbnailPath != "" {
+		if err := os.Remove(it.ThumbnailPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove thumbnail %q: %w", it.ThumbnailPath, err)
+		}
+	}
+	return nil
+}
+
+// PurgeRecycleBinItem permanently deletes a single recycle bin item — file or
+// folder — right away, instead of waiting for its retention window to elapse.
+// Requires write access to the drive the item was deleted from.
+func (dm *DiskManager) PurgeRecycleBinItem(recycleBinId, driveId, userId string) error {
+	hasAccess, err := dm.CheckUserDriveWriteAccess(userId, driveId)
+	if err != nil {
+		return err
+	}
+	if !hasAccess {
+		return errors.New("user does not have write access to this drive")
+	}
+	drive, err := dm.Store.GetDriveByID(driveId)
+	if err != nil {
+		return fmt.Errorf("diskmanager: get drive by id %q: %w", driveId, err)
+	}
+	item, err := dm.Store.GetRecycleBinItemByID(recycleBinId)
+	if err != nil {
+		return fmt.Errorf("diskmanager: get recycle bin item %q: %w", recycleBinId, err)
+	}
+	if item.DriveID != drive.ID {
+		return errors.New("recycle bin item does not belong to this drive")
+	}
+	if item.IsDir {
+		if err := dm.purgeFolderItem(item); err != nil {
+			return fmt.Errorf("diskmanager: purge folder item %q: %w", item.RecyclePathKey, err)
+		}
+	} else {
+		if err := dm.purgeFileItem(item); err != nil {
+			return fmt.Errorf("diskmanager: purge file item %q: %w", item.RecyclePathKey, err)
+		}
+	}
+	if err := dm.Store.DeleteRecycleBinItemByID(item.ID.String()); err != nil {
+		return fmt.Errorf("diskmanager: delete recycle bin item after purge: %w", err)
+	}
 	return nil
 }

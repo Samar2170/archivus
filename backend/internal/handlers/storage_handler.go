@@ -62,7 +62,7 @@ func (h *StorageHandler) DeleteFolder(w http.ResponseWriter, r *http.Request) {
 		response.BadRequestResponse(w, err.Error())
 		return
 	}
-	response.JSONResponse(w, map[string]string{"message": "folder deleted"})
+	response.JSONResponse(w, map[string]string{"message": "folder moved to recycle bin"})
 }
 
 func (h *StorageHandler) UploadFileHandler(w http.ResponseWriter, r *http.Request) {
@@ -193,6 +193,31 @@ func (h *StorageHandler) RestoreFileHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	response.JSONResponse(w, map[string]string{"message": "file restored"})
+}
+
+// PurgeRecycleBinItemHandler permanently deletes a single recycle bin item
+// (file or folder) immediately, instead of waiting for its 30 day retention
+// window to elapse and the cron purge to reach it.
+func (h *StorageHandler) PurgeRecycleBinItemHandler(w http.ResponseWriter, r *http.Request) {
+	type purgeRecycleBinItemRequest struct {
+		RecycleBinId string `json:"recycleBinId"`
+		DriveId      string `json:"driveId"`
+	}
+	var req purgeRecycleBinItemRequest
+	if err := reqhelpers.DecodeRequest(r, &req); err != nil {
+		response.BadRequestResponse(w, err.Error())
+		return
+	}
+	userID, ok := r.Context().Value(archivus_constants.ContextKey(archivus_constants.UserIdKey)).(string)
+	if !ok {
+		response.UnauthorizedResponse(w, "user ID not found in context")
+		return
+	}
+	if err := h.service.PurgeRecycleBinItem(req.RecycleBinId, req.DriveId, userID); err != nil {
+		response.BadRequestResponse(w, err.Error())
+		return
+	}
+	response.JSONResponse(w, map[string]string{"message": "item permanently deleted"})
 }
 
 func (h *StorageHandler) DownloadFileHandler(w http.ResponseWriter, r *http.Request) {

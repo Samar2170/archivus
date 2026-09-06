@@ -20,6 +20,7 @@ export const paths = {
 	fileDelete: '/storage/file/delete',
 	recycleBin: '/storage/recyclebin',
 	recycleBinRestore: '/storage/recyclebin/restore',
+	recycleBinPurge: '/storage/recyclebin/purge',
 	apiKeyCreate: '/auth/apikey/create',
 	apiKeyList: '/auth/apikey/list',
 	apiKeyRevoke: '/auth/apikey/revoke'

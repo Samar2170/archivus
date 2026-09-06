@@ -93,16 +93,16 @@
 			<FolderInput class="h-4 w-4 text-gray-500" />
 			Move to…
 		</button>
-
-		<div class="my-1 h-px bg-gray-100"></div>
-
-		<button
-			role="menuitem"
-			class="flex w-full items-center gap-2.5 px-3 py-2 text-sm text-red-600 hover:bg-red-50"
-			on:click={() => dispatch("delete", file)}
-		>
-			<Trash2 class="h-4 w-4" />
-			Delete
-		</button>
 	{/if}
+
+	<div class="my-1 h-px bg-gray-100"></div>
+
+	<button
+		role="menuitem"
+		class="flex w-full items-center gap-2.5 px-3 py-2 text-sm text-red-600 hover:bg-red-50"
+		on:click={() => dispatch("delete", file)}
+	>
+		<Trash2 class="h-4 w-4" />
+		{file.IsDir ? "Delete folder" : "Delete"}
+	</button>
 </div>

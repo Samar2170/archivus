@@ -43,8 +43,16 @@ func (s *Store) WithTx(tx *gorm.DB) *Store {
 	return &Store{DB: s.DB, tx: tx}
 }
 
+// Transaction runs fn inside a database transaction. Calling it while already
+// inside one (e.g. from code that received a WithTx store) joins the existing
+// transaction instead of opening a second one on another pooled connection,
+// which under SQLite would deadlock against the outer transaction's write lock.
 func (s *Store) Transaction(fn func(tx *Store) error) error {
-	return s.DB.Transaction(func(tx *gorm.DB) error {
+	db := s.DB
+	if s.tx != nil {
+		db = s.tx
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
 		return fn(s.WithTx(tx))
 	})
 }

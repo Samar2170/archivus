@@ -49,6 +49,35 @@ func (b *BaseManager) CheckUserHasDriveAccess(userID, driveID string) (bool, err
 	return inDrive, nil
 }
 
+// CheckUserDriveManageAccess reports whether the user may administer a drive's
+// folder shares: admins, the drive owner and drive managers qualify.
+func (b *BaseManager) CheckUserDriveManageAccess(userID string, drive models.Drive) (bool, error) {
+	user, err := b.Store.GetUserByID(userID)
+	if err != nil {
+		return false, fmt.Errorf("storagemanager: get user %q: %w", userID, err)
+	}
+	if user.IsAdmin || drive.OwnerID == user.ID {
+		return true, nil
+	}
+	inDrive, accessLevel, err := b.Store.CheckIfUserInDrive(userID, drive.ID.String())
+	if err != nil {
+		return false, fmt.Errorf("storagemanager: check if user in drive: %w", err)
+	}
+	return inDrive && models.CompareAccessLevels(accessLevel, models.AccessLevelManager), nil
+}
+
+// CheckUserHasSharedFolderAccess returns the folder share granting userID
+// access to rootPathKey in driveID, or an error when there is none. Both read
+// and write level shares qualify; write-gated operations enforce their extra
+// requirement separately.
+func (b *BaseManager) CheckUserHasSharedFolderAccess(userID, driveID, rootPathKey string) (models.SharedInfo, error) {
+	share, err := b.Store.GetSharedFolderByScope(driveID, rootPathKey, userID)
+	if err != nil {
+		return models.SharedInfo{}, fmt.Errorf("no access to this shared folder")
+	}
+	return share, nil
+}
+
 // ListRecycleBin returns a drive's recycle bin contents. It is storage-backend
 // independent (metadata lives in the DB), so both disk and S3 managers inherit
 // it from the base.

@@ -32,6 +32,14 @@ type StorageManager interface {
 	UploadFileV2(relPath, driveId, userId string, file multipart.File, fileHeader *multipart.FileHeader) error
 	GetFilesV2(relPath, driveId, userId string, page, pageSize int, query storage_types.ListFilesQuery) (storage_types.PagedDirEntries, error)
 
+	// Shared-folder variants for the /storage/shared/* API surface. Access is
+	// granted by a folder share (shared_info) rather than drive membership.
+	// rootRelPath is the shared root (drive-relative); every operation is
+	// constrained to that subtree. relPath (drive-relative) must be the root or
+	// inside it.
+	GetSharedFiles(rootRelPath, relPath, driveId, userId string, page, pageSize int, query storage_types.ListFilesQuery) (storage_types.PagedDirEntries, error)
+	DownloadSharedFile(fileId, rootRelPath, driveId, userId string) (*os.File, *models.FileMetadata, error)
+
 	// EnqueueChunkedUpload registers an assembled chunked upload for persistence.
 	// localPath is the on-disk assembled file. For backends where writing is slow
 	// (object storage) the row is created as pending and the actual push is

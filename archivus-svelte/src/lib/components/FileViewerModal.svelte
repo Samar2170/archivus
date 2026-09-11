@@ -11,6 +11,10 @@
 	export let onClose: () => void = () => {};
 	// Reuses the parent's blob-download flow for the download CTA.
 	export let onDownload: (file: FileMetaData) => void = () => {};
+	// Optional alternative fetch for preview bytes. Lets callers that browse
+	// outside the drive-membership APIs (e.g. shared folders) supply their own
+	// authorized download; when unset the drive download endpoint is used.
+	export let fetchBlob: ((file: FileMetaData) => Promise<Blob>) | null = null;
 
 	const imageExts = ["jpg", "jpeg", "png", "gif", "webp", "svg"];
 	const videoExts = ["mp4", "webm", "mov", "mkv", "avi", "m4v"];
@@ -98,17 +102,16 @@
 
 	async function load(target: FileMetaData, targetKind: PreviewKind) {
 		const token = ++requestToken;
-		const driveId = $authStore.driveId;
 		releaseObject();
 		textContent = "";
 		error = "";
-		if (!driveId) {
+		if (!fetchBlob && !$authStore.driveId) {
 			error = "No drive available for this account.";
 			return;
 		}
 		loading = true;
 		try {
-			const blob = await downloadFile(target.ID, driveId);
+			const blob = fetchBlob ? await fetchBlob(target) : await downloadFile(target.ID, $authStore.driveId!);
 			if (token !== requestToken) return;
 			if (targetKind === "text") {
 				textContent = await blob.text();

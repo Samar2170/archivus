@@ -2,12 +2,13 @@
 	import { goto } from "$app/navigation";
 	import { page } from "$app/stores";
 	import { authStore } from "$lib/stores/auth";
-	import { Menu, X, Home, LogOut, Trash2, HardDrive, KeyRound } from "lucide-svelte";
+	import { Menu, X, Home, LogOut, Trash2, HardDrive, KeyRound, Share2 } from "lucide-svelte";
 
 	let mobileOpen = false;
 
 	const navItems = [
 		{ label: "Home", href: "/", icon: Home },
+		{ label: "Shared", href: "/shared", icon: Share2 },
 		{ label: "Recycle Bin", href: "/recyclebin", icon: Trash2 },
 		{ label: "Drive", href: "/drive", icon: HardDrive },
 		{ label: "API Keys", href: "/apikeys", icon: KeyRound },

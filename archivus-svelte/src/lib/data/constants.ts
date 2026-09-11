@@ -21,6 +21,12 @@ export const paths = {
 	recycleBin: '/storage/recyclebin',
 	recycleBinRestore: '/storage/recyclebin/restore',
 	recycleBinPurge: '/storage/recyclebin/purge',
+	sharedRoots: '/storage/shared/roots',
+	sharedList: '/storage/shared/list',
+	sharedFileDownload: '/storage/shared/file/download',
+	sharedGrant: '/storage/shared/grant',
+	sharedRevoke: '/storage/shared/revoke',
+	sharedListUsers: '/storage/shared/list-users',
 	apiKeyCreate: '/auth/apikey/create',
 	apiKeyList: '/auth/apikey/list',
 	apiKeyRevoke: '/auth/apikey/revoke'

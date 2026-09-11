@@ -3,6 +3,7 @@
 	import { goto } from "$app/navigation";
 	import { page } from "$app/stores";
 	import { authStore } from "$lib/stores/auth";
+	import { getUserInfo, type DriveUser } from "$lib/api/auth";
 	import { getFiles, deleteFile, downloadFile } from "$lib/api/files";
 	import { deleteFolder } from "$lib/api/folder";
 	import type { FileMetaData } from "$lib/api/files";
@@ -21,6 +22,7 @@
 	import FileContextMenu from "$lib/components/FileContextMenu.svelte";
 	import MoveFileModal from "$lib/components/MoveFileModal.svelte";
 	import FileViewerModal from "$lib/components/FileViewerModal.svelte";
+	import ShareFolderModal from "$lib/components/ShareFolderModal.svelte";
 
 	let files: FileMetaData[] = [];
 	let loading = false;
@@ -60,6 +62,11 @@
 	let movingFile: FileMetaData | null = null;
 	let deletingFile: FileMetaData | null = null;
 	let deleteBusy = false;
+	// The folder currently managed in the Share modal (null = closed).
+	let sharingFolder: FileMetaData | null = null;
+	// Whether the user may manage folder shares on the active drive
+	// (owner/manager). Drives the user only reads hide the action.
+	let canManageDrive = false;
 	// The file currently shown in the viewer modal (null = closed).
 	let viewerFile: FileMetaData | null = null;
 	// Set when a long-press opens the menu, so the tap that follows on touch
@@ -134,7 +141,25 @@
 			return;
 		}
 		loadFiles();
+		loadManageAccess();
 	});
+
+	// Determine whether this user may administer folder shares on the active
+	// drive. Failure is treated as "no" — a safe default that only hides a
+	// context-menu action.
+	async function loadManageAccess() {
+		try {
+			const info = await getUserInfo();
+			const driveId = $authStore.driveId;
+			const membership: DriveUser | undefined = info.drives?.find(
+				(d) => d.DriveID === driveId
+			);
+			const level = membership?.AccessLevel ?? "";
+			canManageDrive = level === "owner" || level === "manager";
+		} catch {
+			canManageDrive = false;
+		}
+	}
 
 	// Reload when folder query param changes, starting back at page 1
 	$: if ($authStore.isAuthenticated && currentFolder !== undefined) {
@@ -389,6 +414,7 @@
 			file={menu.file}
 			x={menu.x}
 			y={menu.y}
+			canShare={canManageDrive && menu.file.IsDir}
 			on:close={() => (menu = null)}
 			on:open={(e) => {
 				menu = null;
@@ -403,6 +429,19 @@
 				deletingFile = e.detail;
 				menu = null;
 			}}
+			on:share={(e) => {
+				sharingFolder = e.detail;
+				menu = null;
+			}}
+		/>
+	{/if}
+
+	<!-- Share-folder management -->
+	{#if sharingFolder}
+		<ShareFolderModal
+			driveId={$authStore.driveId ?? ""}
+			folderPath={sharingFolder.NavigationPath || sharingFolder.Path}
+			on:close={() => (sharingFolder = null)}
 		/>
 	{/if}
 

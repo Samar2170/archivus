@@ -89,6 +89,13 @@ func (s *S3Manager) DownloadFile(fileId string, driveId, userId string) (*os.Fil
 	if !hasAccess {
 		return nil, nil, errors.New("user does not have access to this drive")
 	}
+	return s.fetchFile(fileId)
+}
+
+// fetchFile loads a file's metadata, refuses not-yet-ready uploads, and copies
+// the object into a local temp file. Shared by the drive download and the
+// shared-folder download, which differ only in access checks.
+func (s *S3Manager) fetchFile(fileId string) (*os.File, *models.FileMetadata, error) {
 	md, err := s.Store.GetFileMetadataByID(fileId)
 	if err != nil {
 		return nil, nil, fmt.Errorf("s3manager: get file metadata %q: %w", fileId, err)
@@ -452,14 +459,23 @@ func (s *S3Manager) GetFilesV2(relPath, driveId, userId string, page, pageSize i
 	} else {
 		dirPrefixes = [2]string{drive.Slug + "/" + trimmed + "/", drive.Slug + "/" + trimmed}
 	}
+	return s.listAtPrefixes(relPath, drive.ID.String(), dirPrefixes, page, pageSize, query)
+}
+
+// listAtPrefixes pages the combined directory/file listing under the given
+// (backend-specific) directory prefixes. Shared by the drive listing and the
+// shared-folder listing, which only differ in how access is checked and which
+// prefixes are derived.
+func (s *S3Manager) listAtPrefixes(relPath, driveId string, dirPrefixes [2]string, page, pageSize int, query storage_types.ListFilesQuery) (storage_types.PagedDirEntries, error) {
+	var out storage_types.PagedDirEntries
 	ctx := context.Background()
 
 	limit, offset := storage_types.PageBounds(page, pageSize)
-	dirCount, err := s.Store.CountDirectoriesByParentPrefix(drive.ID.String(), dirPrefixes)
+	dirCount, err := s.Store.CountDirectoriesByParentPrefix(driveId, dirPrefixes)
 	if err != nil {
 		return out, fmt.Errorf("s3manager: count dirs for prefix %q: %w", dirPrefixes, err)
 	}
-	fileCount, err := s.Store.CountFileMetadataByDirPrefix(drive.ID.String(), dirPrefixes, query.Extensions, query.Others)
+	fileCount, err := s.Store.CountFileMetadataByDirPrefix(driveId, dirPrefixes, query.Extensions, query.Others)
 	if err != nil {
 		return out, fmt.Errorf("s3manager: count files for prefix %q: %w", dirPrefixes, err)
 	}
@@ -467,7 +483,7 @@ func (s *S3Manager) GetFilesV2(relPath, driveId, userId string, page, pageSize i
 
 	entries := make([]storage_types.DirEntry, 0, limit)
 	if window.DirLimit != 0 {
-		dirs, err := s.Store.GetDirectoriesByParentPrefixPaged(drive.ID.String(), dirPrefixes, window.DirLimit, window.DirOffset)
+		dirs, err := s.Store.GetDirectoriesByParentPrefixPaged(driveId, dirPrefixes, window.DirLimit, window.DirOffset)
 		if err != nil {
 			return out, fmt.Errorf("s3manager: list dirs for prefix %q: %w", dirPrefixes, err)
 		}
@@ -482,7 +498,7 @@ func (s *S3Manager) GetFilesV2(relPath, driveId, userId string, page, pageSize i
 		}
 	}
 	if window.FileLimit != 0 {
-		files, err := s.Store.GetFileMetadataByDirPrefixPaged(drive.ID.String(), dirPrefixes, window.FileLimit, window.FileOffset, query.Extensions, query.Others, query.SortBy, query.SortOrder)
+		files, err := s.Store.GetFileMetadataByDirPrefixPaged(driveId, dirPrefixes, window.FileLimit, window.FileOffset, query.Extensions, query.Others, query.SortBy, query.SortOrder)
 		if err != nil {
 			return out, fmt.Errorf("s3manager: list files for prefix %q: %w", dirPrefixes, err)
 		}

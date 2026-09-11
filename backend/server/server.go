@@ -71,6 +71,17 @@ func GetServer(authService *auth.AuthService) *http.Server {
 	// bypassing the remaining retention window.
 	protected.HandleFunc("/storage/recyclebin/purge", storageHandler.PurgeRecycleBinItemHandler).Methods(http.MethodPost)
 
+	// Shared folders: a dedicated read-only surface for folders other users
+	// shared with the current user. Drive-membership storage APIs above are
+	// untouched by it.
+	sharedHandler := handlers.NewSharedHandler(authService.Store, authService.StorageManager)
+	protected.HandleFunc("/storage/shared/roots", sharedHandler.GetRoots).Methods(http.MethodGet)
+	protected.HandleFunc("/storage/shared/list", sharedHandler.ListFiles).Methods(http.MethodPost)
+	protected.HandleFunc("/storage/shared/file/download", sharedHandler.DownloadFile).Methods(http.MethodGet)
+	protected.HandleFunc("/storage/shared/grant", sharedHandler.GrantShare).Methods(http.MethodPost)
+	protected.HandleFunc("/storage/shared/revoke", sharedHandler.RevokeShare).Methods(http.MethodPost)
+	protected.HandleFunc("/storage/shared/list-users", sharedHandler.ListSharedUsers).Methods(http.MethodPost)
+
 	// Serve generated thumbnail images as static files. Thumbnails are loaded via
 	// <img> tags which cannot send Authorization headers, so this route is public;
 	// it only ever exposes downscaled preview JPEGs from the thumbnail directory.

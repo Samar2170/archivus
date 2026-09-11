@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher, onMount, onDestroy } from "svelte";
-	import { FolderInput, Trash2, Download, FolderOpen } from "lucide-svelte";
+	import { FolderInput, Trash2, Download, FolderOpen, Share2 } from "lucide-svelte";
 	import type { FileMetaData } from "$lib/api/files";
 
 	// Screen coordinates where the menu should appear (usually the cursor / touch
@@ -8,12 +8,16 @@
 	export let x = 0;
 	export let y = 0;
 	export let file: FileMetaData;
+	// Whether the current user may manage folder shares (owner/manager/admin);
+	// gates the "Share folder" action on directories.
+	export let canShare = false;
 
 	const dispatch = createEventDispatcher<{
 		open: FileMetaData;
 		move: FileMetaData;
 		delete: FileMetaData;
 		download: FileMetaData;
+		share: FileMetaData;
 		close: void;
 	}>();
 
@@ -92,6 +96,15 @@
 		>
 			<FolderInput class="h-4 w-4 text-gray-500" />
 			Move to…
+		</button>
+	{:else if canShare}
+		<button
+			role="menuitem"
+			class="flex w-full items-center gap-2.5 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+			on:click={() => dispatch("share", file)}
+		>
+			<Share2 class="h-4 w-4 text-gray-500" />
+			Share folder
 		</button>
 	{/if}
 

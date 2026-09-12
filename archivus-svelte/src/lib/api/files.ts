@@ -148,3 +148,54 @@ export async function downloadFile(fileId: string, driveId: string): Promise<Blo
 	}
 	return res.blob();
 }
+
+// requestDownloadUrl asks the server for a short-lived direct-download URL.
+// Object-storage backends return one so the browser can fetch bytes straight
+// from the bucket; local-disk backends return "" and the caller must stream.
+export async function requestDownloadUrl(fileId: string, driveId: string): Promise<string> {
+	const params = new URLSearchParams({ fileId, driveId });
+	const data = await apiFetch<{ url: string }>(`${paths.fileDownloadUrl}?${params.toString()}`);
+	return data.url ?? '';
+}
+
+// requestPreviewUrl asks for an inline URL usable directly as an element src
+// (image/video/pdf), so large previews stream instead of buffering a blob.
+export async function requestPreviewUrl(fileId: string, driveId: string): Promise<string> {
+	const params = new URLSearchParams({ fileId, driveId, mode: 'inline' });
+	const data = await apiFetch<{ url: string }>(`${paths.fileDownloadUrl}?${params.toString()}`);
+	return data.url ?? '';
+}
+
+// triggerBrowserDownload hands a URL to the browser and lets it stream the
+// bytes itself, so the whole file never sits in JS memory. The cross-origin
+// `download` attribute is ignored by browsers, so the server-side
+// Content-Disposition (set by the presigned URL) supplies the filename.
+export function triggerBrowserDownload(url: string, filename: string): void {
+	const a = document.createElement('a');
+	a.href = url;
+	a.download = filename;
+	a.rel = 'noopener';
+	document.body.appendChild(a);
+	a.click();
+	a.remove();
+}
+
+// downloadFileToDisk downloads a file, preferring a direct object-storage URL
+// and falling back to the authenticated stream when the backend cannot mint
+// one (local disk).
+export async function downloadFileToDisk(file: FileMetaData, driveId: string): Promise<void> {
+	let url = '';
+	try {
+		url = await requestDownloadUrl(file.ID, driveId);
+	} catch {
+		// Minting failed; the fallback below will surface any real error.
+	}
+	if (url) {
+		triggerBrowserDownload(url, file.Name);
+		return;
+	}
+	const blob = await downloadFile(file.ID, driveId);
+	const objectUrl = URL.createObjectURL(blob);
+	triggerBrowserDownload(objectUrl, file.Name);
+	URL.revokeObjectURL(objectUrl);
+}

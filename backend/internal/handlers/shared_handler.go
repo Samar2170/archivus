@@ -116,6 +116,25 @@ func (h *SharedHandler) DownloadFile(w http.ResponseWriter, r *http.Request) {
 	http.ServeContent(w, r, md.Name, time.Time{}, file)
 }
 
+// DownloadURL returns a direct URL for a file inside a shared subtree, or ""
+// when the backend has no such capability. mode=inline yields a preview URL.
+func (h *SharedHandler) DownloadURL(w http.ResponseWriter, r *http.Request) {
+	fileId := r.URL.Query().Get("fileId")
+	driveId := r.URL.Query().Get("driveId")
+	rootPath := r.URL.Query().Get("rootPath")
+	inline := r.URL.Query().Get("mode") == "inline"
+	userID, ok := userIDFromContext(w, r)
+	if !ok {
+		return
+	}
+	url, err := h.service.DownloadURL(userID, driveId, rootPath, fileId, inline)
+	if err != nil {
+		response.BadRequestResponse(w, err.Error())
+		return
+	}
+	response.JSONResponse(w, map[string]string{"url": url})
+}
+
 // GrantShare shares a folder with an existing user (upsert).
 func (h *SharedHandler) GrantShare(w http.ResponseWriter, r *http.Request) {
 	type grantShareRequest struct {

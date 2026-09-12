@@ -6,7 +6,7 @@ import (
 	"archivus/internal/utils"
 	"errors"
 	"fmt"
-	"os"
+	"io"
 	"strings"
 )
 
@@ -41,7 +41,7 @@ func (s *S3Manager) GetSharedFiles(rootRelPath, relPath, driveId, userId string,
 
 // DownloadSharedFile serves a file from inside a shared subtree. The file must
 // exist, be ready, and live under the shared root.
-func (s *S3Manager) DownloadSharedFile(fileId, rootRelPath, driveId, userId string) (*os.File, *models.FileMetadata, error) {
+func (s *S3Manager) DownloadSharedFile(fileId, rootRelPath, driveId, userId string) (io.ReadSeekCloser, *models.FileMetadata, error) {
 	rootRelPath = utils.NormalizeRelPath(rootRelPath)
 	if rootRelPath == "" {
 		return nil, nil, errors.New("shared folder root is required")
@@ -65,4 +65,29 @@ func (s *S3Manager) DownloadSharedFile(fileId, rootRelPath, driveId, userId stri
 		return nil, nil, errors.New("file is outside the shared folder")
 	}
 	return f, md, nil
+}
+
+// DownloadSharedURL is the direct-download counterpart of DownloadSharedFile:
+// it verifies the file lives inside the shared root, then presigns an R2 URL.
+func (s *S3Manager) DownloadSharedURL(fileId, rootRelPath, driveId, userId string, inline bool) (string, error) {
+	rootRelPath = utils.NormalizeRelPath(rootRelPath)
+	if rootRelPath == "" {
+		return "", errors.New("shared folder root is required")
+	}
+	if _, err := s.CheckUserHasSharedFolderAccess(userId, driveId, rootRelPath); err != nil {
+		return "", err
+	}
+	drive, err := s.Store.GetDriveByID(driveId)
+	if err != nil {
+		return "", fmt.Errorf("s3manager: get drive %q: %w", driveId, err)
+	}
+	md, err := s.readyFileMetadata(fileId)
+	if err != nil {
+		return "", err
+	}
+	rootPrefix := drive.Slug + "/" + rootRelPath + "/"
+	if !strings.HasPrefix(md.PathKey, rootPrefix) {
+		return "", errors.New("file is outside the shared folder")
+	}
+	return s.presignForMetadata(md, inline)
 }

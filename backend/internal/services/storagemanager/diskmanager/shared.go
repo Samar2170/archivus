@@ -6,6 +6,7 @@ import (
 	"archivus/internal/utils"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,7 +38,7 @@ func (dm *DiskManager) GetSharedFiles(rootRelPath, relPath, driveId, userId stri
 
 // DownloadSharedFile serves a file from inside a shared subtree. The file must
 // exist, be ready, and live under the shared root.
-func (dm *DiskManager) DownloadSharedFile(fileId, rootRelPath, driveId, userId string) (*os.File, *models.FileMetadata, error) {
+func (dm *DiskManager) DownloadSharedFile(fileId, rootRelPath, driveId, userId string) (io.ReadSeekCloser, *models.FileMetadata, error) {
 	rootRelPath = utils.NormalizeRelPath(rootRelPath)
 	if rootRelPath == "" {
 		return nil, nil, errors.New("shared folder root is required")
@@ -62,4 +63,18 @@ func (dm *DiskManager) DownloadSharedFile(fileId, rootRelPath, driveId, userId s
 		return nil, nil, errors.New("file is outside the shared folder")
 	}
 	return f, md, nil
+}
+
+// DownloadSharedURL is unsupported for local disk and always returns "". It
+// still validates the share so authorization behavior matches
+// DownloadSharedFile.
+func (dm *DiskManager) DownloadSharedURL(fileId, rootRelPath, driveId, userId string, inline bool) (string, error) {
+	rootRelPath = utils.NormalizeRelPath(rootRelPath)
+	if rootRelPath == "" {
+		return "", errors.New("shared folder root is required")
+	}
+	if _, err := dm.CheckUserHasSharedFolderAccess(userId, driveId, rootRelPath); err != nil {
+		return "", err
+	}
+	return "", nil
 }

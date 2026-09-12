@@ -81,7 +81,7 @@ func (s *S3Manager) UploadFile(relPath, driveId, userId string, file multipart.F
 // 	return s.Store.UpdateFileMetadataPaths(md.ID, newAbsPath, newRelPath, newDirPath)
 // }
 
-func (s *S3Manager) DownloadFile(fileId string, driveId, userId string) (*os.File, *models.FileMetadata, error) {
+func (s *S3Manager) DownloadFile(fileId string, driveId, userId string) (io.ReadSeekCloser, *models.FileMetadata, error) {
 	hasAccess, err := s.CheckUserHasDriveAccess(userId, driveId)
 	if err != nil {
 		return nil, nil, err
@@ -92,19 +92,81 @@ func (s *S3Manager) DownloadFile(fileId string, driveId, userId string) (*os.Fil
 	return s.fetchFile(fileId)
 }
 
+// downloadURLExpiry bounds how long a minted direct-download URL stays valid.
+// It only has to outlive the browser starting the download, so it is kept
+// short.
+const downloadURLExpiry = 15 * time.Minute
+
+// previewURLExpiry is longer than downloadURLExpiry because a preview URL is
+// used for the whole viewing session: a video makes fresh range requests as the
+// user seeks, so the URL must outlive the playback, not just the first byte.
+const previewURLExpiry = time.Hour
+
+// DownloadURL hands the client a presigned R2 URL so bytes flow straight from
+// object storage to the browser, bypassing this server entirely. The heavy
+// part of a normal download — copying the whole object into a local temp file
+// before serving the first byte — is skipped.
+func (s *S3Manager) DownloadURL(fileId string, driveId, userId string, inline bool) (string, error) {
+	hasAccess, err := s.CheckUserHasDriveAccess(userId, driveId)
+	if err != nil {
+		return "", err
+	}
+	if !hasAccess {
+		return "", errors.New("user does not have access to this drive")
+	}
+	md, err := s.readyFileMetadata(fileId)
+	if err != nil {
+		return "", err
+	}
+	return s.presignForMetadata(md, inline)
+}
+
+// presignForMetadata mints the direct URL for a ready file, picking the inline
+// or attachment flavour.
+func (s *S3Manager) presignForMetadata(md models.FileMetadata, inline bool) (string, error) {
+	ctx := context.Background()
+	if inline {
+		return s.Client.PresignGetObjectPreview(ctx, s.Client.BucketName, md.PathKey, md.ContentType, previewURLExpiry)
+	}
+	return s.Client.PresignGetObjectDownload(ctx, s.Client.BucketName, md.PathKey, md.Name, downloadURLExpiry)
+}
+
+// readyFileMetadata loads a file's metadata and refuses not-yet-ready uploads.
+func (s *S3Manager) readyFileMetadata(fileId string) (models.FileMetadata, error) {
+	md, err := s.Store.GetFileMetadataByID(fileId)
+	if err != nil {
+		return models.FileMetadata{}, fmt.Errorf("s3manager: get file metadata %q: %w", fileId, err)
+	}
+	if md.UploadStatus == models.UploadStatusPending || md.UploadStatus == models.UploadStatusUploading {
+		return models.FileMetadata{}, fmt.Errorf("s3manager: file %q is still being uploaded", md.Name)
+	}
+	if md.UploadStatus == models.UploadStatusFailed {
+		return models.FileMetadata{}, fmt.Errorf("s3manager: upload of file %q did not complete", md.Name)
+	}
+	return md, nil
+}
+
+// selfDeletingTempFile wraps the on-disk temp copy of an S3 object and removes
+// it once the response is done with it, so temp downloads never accumulate.
+type selfDeletingTempFile struct {
+	*os.File
+}
+
+func (t *selfDeletingTempFile) Close() error {
+	err := t.File.Close()
+	if rmErr := os.Remove(t.File.Name()); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
+		fmt.Printf("warning: failed to remove temp download %q: %v\n", t.File.Name(), rmErr)
+	}
+	return err
+}
+
 // fetchFile loads a file's metadata, refuses not-yet-ready uploads, and copies
 // the object into a local temp file. Shared by the drive download and the
 // shared-folder download, which differ only in access checks.
-func (s *S3Manager) fetchFile(fileId string) (*os.File, *models.FileMetadata, error) {
-	md, err := s.Store.GetFileMetadataByID(fileId)
+func (s *S3Manager) fetchFile(fileId string) (*selfDeletingTempFile, *models.FileMetadata, error) {
+	md, err := s.readyFileMetadata(fileId)
 	if err != nil {
-		return nil, nil, fmt.Errorf("s3manager: get file metadata %q: %w", fileId, err)
-	}
-	if md.UploadStatus == models.UploadStatusPending || md.UploadStatus == models.UploadStatusUploading {
-		return nil, nil, fmt.Errorf("s3manager: file %q is still being uploaded", md.Name)
-	}
-	if md.UploadStatus == models.UploadStatusFailed {
-		return nil, nil, fmt.Errorf("s3manager: upload of file %q did not complete", md.Name)
+		return nil, nil, err
 	}
 	// PathKey = drive.Slug/dir/filename, i.e. the full key in the shared bucket
 	out, err := s.Client.GetObject(context.Background(), s.Client.BucketName, md.PathKey)
@@ -127,7 +189,7 @@ func (s *S3Manager) fetchFile(fileId string) (*os.File, *models.FileMetadata, er
 		os.Remove(tmp.Name())
 		return nil, nil, fmt.Errorf("s3manager: seek temp file: %w", err)
 	}
-	return tmp, &md, nil
+	return &selfDeletingTempFile{File: tmp}, &md, nil
 }
 
 // UploadFileV2 stores a file in a drive. Biz mode keeps every version: if a file

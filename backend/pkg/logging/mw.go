@@ -154,19 +154,32 @@ func extractClientIP(r *http.Request) string {
 	return host
 }
 
-// logResponseWriter wraps http.ResponseWriter to capture status code and response body.
+// logResponseWriter wraps http.ResponseWriter to capture status code and a
+// bounded prefix of the response body. Only the start of a 5xx body is ever
+// logged (truncated to 512 bytes), so capturing more is pointless — and for
+// file downloads an unbounded buffer would mirror the entire file into memory.
 type logResponseWriter struct {
 	http.ResponseWriter
 	statusCode int
 	buf        bytes.Buffer
 }
 
+// maxCapturedBodyBytes caps how much of a response body is retained for error
+// logging. Everything past it is still written to the client.
+const maxCapturedBodyBytes = 4096
+
 func newLogResponseWriter(w http.ResponseWriter) *logResponseWriter {
 	return &logResponseWriter{ResponseWriter: w, statusCode: http.StatusOK}
 }
 
 func (w *logResponseWriter) Write(body []byte) (int, error) {
-	w.buf.Write(body)
+	if remaining := maxCapturedBodyBytes - w.buf.Len(); remaining > 0 {
+		if len(body) > remaining {
+			w.buf.Write(body[:remaining])
+		} else {
+			w.buf.Write(body)
+		}
+	}
 	return w.ResponseWriter.Write(body)
 }
 

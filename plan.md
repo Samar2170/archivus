@@ -97,3 +97,6 @@ Implement shared-folder access without breaking existing `/storage/*` flows, whi
 3. `/storage/shared/*` handlers and routes
 4. Frontend `Shared with me` page + API clients
 5. Integration/regression test coverage
+
+#### Issues
+1. Medium (folder shares are never cleaned up on folder delete — recreating a folder at the same path silently inherits the old share and exposes new content) 

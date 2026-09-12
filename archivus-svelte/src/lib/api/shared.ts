@@ -1,7 +1,10 @@
 import { apiFetch } from '$lib/utils/fetcher';
 import { paths, baseUrl, type FileCategory, type SortBy, type SortOrder } from '$lib/data/constants';
 import { authStore } from '$lib/stores/auth';
-import type { FileMetaData } from '$lib/api/files';
+import {
+	triggerBrowserDownload,
+	type FileMetaData
+} from '$lib/api/files';
 
 // Folder shares: read-only browsing of folders other users shared with you,
 // plus grant/revoke management for drive owners/managers. Drive APIs are
@@ -92,6 +95,54 @@ export async function downloadSharedFile(
 		throw new Error(`HTTP ${res.status}: ${res.statusText}`);
 	}
 	return res.blob();
+}
+
+// requestSharedDownloadUrl asks the server for a short-lived direct-download
+// URL for a file inside a shared subtree, or "" when the backend cannot mint
+// one.
+export async function requestSharedDownloadUrl(
+	fileId: string,
+	driveId: string,
+	rootPath: string
+): Promise<string> {
+	const params = new URLSearchParams({ fileId, driveId, rootPath });
+	const data = await apiFetch<{ url: string }>(`${paths.sharedFileDownloadUrl}?${params.toString()}`);
+	return data.url ?? '';
+}
+
+// requestSharedPreviewUrl asks for an inline URL usable directly as a preview
+// src, or "" when the backend cannot mint one.
+export async function requestSharedPreviewUrl(
+	fileId: string,
+	driveId: string,
+	rootPath: string
+): Promise<string> {
+	const params = new URLSearchParams({ fileId, driveId, rootPath, mode: 'inline' });
+	const data = await apiFetch<{ url: string }>(`${paths.sharedFileDownloadUrl}?${params.toString()}`);
+	return data.url ?? '';
+}
+
+// downloadSharedFileToDisk prefers a direct object-storage URL and falls back
+// to the authenticated shared stream for local-disk backends.
+export async function downloadSharedFileToDisk(
+	file: FileMetaData,
+	driveId: string,
+	rootPath: string
+): Promise<void> {
+	let url = '';
+	try {
+		url = await requestSharedDownloadUrl(file.ID, driveId, rootPath);
+	} catch {
+		// Minting failed; the fallback below will surface any real error.
+	}
+	if (url) {
+		triggerBrowserDownload(url, file.Name);
+		return;
+	}
+	const blob = await downloadSharedFile(file.ID, driveId, rootPath);
+	const objectUrl = URL.createObjectURL(blob);
+	triggerBrowserDownload(objectUrl, file.Name);
+	URL.revokeObjectURL(objectUrl);
 }
 
 // grantFolderShare shares a folder with an existing user, by userId or

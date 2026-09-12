@@ -8,7 +8,7 @@ import (
 	"archivus/internal/utils"
 	"errors"
 	"fmt"
-	"os"
+	"io"
 	"time"
 )
 
@@ -123,7 +123,7 @@ func (s *Service) List(userID, driveID, rootPath, path string, page, pageSize in
 
 // Download serves a file from a shared subtree. The share root must be given
 // explicitly; the storage layer verifies the file lives inside it.
-func (s *Service) Download(userID, driveID, rootPath, fileID string) (*os.File, *models.FileMetadata, error) {
+func (s *Service) Download(userID, driveID, rootPath, fileID string) (io.ReadSeekCloser, *models.FileMetadata, error) {
 	rootPath = utils.NormalizeRelPath(rootPath)
 	if rootPath == "" {
 		return nil, nil, errors.New("rootPath is required")
@@ -136,6 +136,25 @@ func (s *Service) Download(userID, driveID, rootPath, fileID string) (*os.File, 
 		return nil, nil, err
 	}
 	return s.Storage.DownloadSharedFile(fileID, share.RootPathKey, drive.ID.String(), userID)
+}
+
+// DownloadURL is the direct-download counterpart of Download. It returns a
+// presigned object-storage URL when the backend supports it, or "" when the
+// caller must stream through Download instead. inline selects a URL suitable
+// for embedding (previews) versus a save-as attachment.
+func (s *Service) DownloadURL(userID, driveID, rootPath, fileID string, inline bool) (string, error) {
+	rootPath = utils.NormalizeRelPath(rootPath)
+	if rootPath == "" {
+		return "", errors.New("rootPath is required")
+	}
+	if fileID == "" {
+		return "", errors.New("fileId is required")
+	}
+	share, drive, err := s.resolveShare(userID, driveID, rootPath, rootPath)
+	if err != nil {
+		return "", err
+	}
+	return s.Storage.DownloadSharedURL(fileID, share.RootPathKey, drive.ID.String(), userID, inline)
 }
 
 // canManage reports whether userID may grant/revoke shares on a drive:

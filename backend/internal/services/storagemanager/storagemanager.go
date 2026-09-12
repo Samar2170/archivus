@@ -4,8 +4,8 @@ import (
 	"archivus/internal/models"
 	storage_types "archivus/internal/services/storagemanager/types"
 	"context"
+	"io"
 	"mime/multipart"
-	"os"
 )
 
 type StorageManager interface {
@@ -24,7 +24,15 @@ type StorageManager interface {
 	// to probe folders in drives the caller cannot write to.
 	DirExists(relPath, driveId, userId string) (bool, error)
 	UploadFile(relPath, driveId, userId string, file multipart.File, fileHeader *multipart.FileHeader) error
-	DownloadFile(fileId string, driveId, userId string) (*os.File, *models.FileMetadata, error)
+	DownloadFile(fileId string, driveId, userId string) (io.ReadSeekCloser, *models.FileMetadata, error)
+	// DownloadURL returns a short-lived direct-download URL for the file when the
+	// backend supports handing bytes straight to the client (object storage), or
+	// an empty string when it does not (local disk). In the empty case callers
+	// must fall back to DownloadFile and stream the bytes themselves. When inline
+	// is true the URL is suitable for embedding in the page (previews); otherwise
+	// it forces a save-as download. Access checks still apply, so an unauthorized
+	// caller gets an error, not "".
+	DownloadURL(fileId, driveId, userId string, inline bool) (string, error)
 	GetFiles(relPath, driveId, userId string) ([]storage_types.DirEntry, error)
 
 	// V2: stores PathKey/Prefix correctly and returns full metadata from DB.
@@ -38,7 +46,10 @@ type StorageManager interface {
 	// constrained to that subtree. relPath (drive-relative) must be the root or
 	// inside it.
 	GetSharedFiles(rootRelPath, relPath, driveId, userId string, page, pageSize int, query storage_types.ListFilesQuery) (storage_types.PagedDirEntries, error)
-	DownloadSharedFile(fileId, rootRelPath, driveId, userId string) (*os.File, *models.FileMetadata, error)
+	DownloadSharedFile(fileId, rootRelPath, driveId, userId string) (io.ReadSeekCloser, *models.FileMetadata, error)
+	// DownloadSharedURL is the shared-folder counterpart of DownloadURL: a
+	// direct-download URL when the backend supports it, otherwise "".
+	DownloadSharedURL(fileId, rootRelPath, driveId, userId string, inline bool) (string, error)
 
 	// EnqueueChunkedUpload registers an assembled chunked upload for persistence.
 	// localPath is the on-disk assembled file. For backends where writing is slow

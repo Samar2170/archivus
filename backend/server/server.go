@@ -61,6 +61,9 @@ func GetServer(authService *auth.AuthService) *http.Server {
 	protected.HandleFunc("/storage/file/upload/chunk/complete", storageHandler.CompleteChunkUploadHandler).Methods(http.MethodPost)
 	protected.HandleFunc("/storage/file/upload/chunk/abort", storageHandler.AbortChunkUploadHandler).Methods(http.MethodPost)
 	protected.HandleFunc("/storage/file/download", storageHandler.DownloadFileHandler).Methods(http.MethodGet)
+	// Mints a direct object-storage download URL; returns "" on backends
+	// without one (local disk), where the client streams via the route above.
+	protected.HandleFunc("/storage/file/download/url", storageHandler.DownloadURLHandler).Methods(http.MethodGet)
 	protected.HandleFunc("/storage/file/move", storageHandler.MoveFileHandler).Methods(http.MethodPost)
 	protected.HandleFunc("/storage/file/delete", storageHandler.DeleteFileHandler).Methods(http.MethodPost)
 	protected.HandleFunc("/storage/files", storageHandler.GetFilesHandler).Methods(http.MethodPost)
@@ -78,6 +81,7 @@ func GetServer(authService *auth.AuthService) *http.Server {
 	protected.HandleFunc("/storage/shared/roots", sharedHandler.GetRoots).Methods(http.MethodGet)
 	protected.HandleFunc("/storage/shared/list", sharedHandler.ListFiles).Methods(http.MethodPost)
 	protected.HandleFunc("/storage/shared/file/download", sharedHandler.DownloadFile).Methods(http.MethodGet)
+	protected.HandleFunc("/storage/shared/file/download/url", sharedHandler.DownloadURL).Methods(http.MethodGet)
 	protected.HandleFunc("/storage/shared/grant", sharedHandler.GrantShare).Methods(http.MethodPost)
 	protected.HandleFunc("/storage/shared/revoke", sharedHandler.RevokeShare).Methods(http.MethodPost)
 	protected.HandleFunc("/storage/shared/list-users", sharedHandler.ListSharedUsers).Methods(http.MethodPost)

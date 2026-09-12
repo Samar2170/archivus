@@ -15,6 +15,10 @@
 	// outside the drive-membership APIs (e.g. shared folders) supply their own
 	// authorized download; when unset the drive download endpoint is used.
 	export let fetchBlob: ((file: FileMetaData) => Promise<Blob>) | null = null;
+	// Optional inline-URL resolver for object storage. When it returns a URL for
+	// a renderable kind, the element streams straight from storage instead of
+	// buffering the whole file into a blob. Returning "" falls back to fetchBlob.
+	export let resolvePreviewUrl: ((file: FileMetaData) => Promise<string>) | null = null;
 
 	const imageExts = ["jpg", "jpeg", "png", "gif", "webp", "svg"];
 	const videoExts = ["mp4", "webm", "mov", "mkv", "avi", "m4v"];
@@ -111,6 +115,17 @@
 		}
 		loading = true;
 		try {
+			// Prefer a direct, inline-URL preview for renderable kinds: the
+			// browser streams (and can range-seek) instead of buffering the file.
+			if (resolvePreviewUrl && targetKind !== "text") {
+				const direct = await resolvePreviewUrl(target);
+				if (token !== requestToken) return;
+				if (direct) {
+					objectUrl = direct;
+					loadedFileId = target.ID;
+					return;
+				}
+			}
 			const blob = fetchBlob ? await fetchBlob(target) : await downloadFile(target.ID, $authStore.driveId!);
 			if (token !== requestToken) return;
 			if (targetKind === "text") {

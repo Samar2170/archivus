@@ -242,6 +242,29 @@ func (h *StorageHandler) DownloadFileHandler(w http.ResponseWriter, r *http.Requ
 	http.ServeContent(w, r, md.Name, time.Time{}, file)
 }
 
+// DownloadURLHandler returns a short-lived direct URL for object storage, or an
+// empty url when the backend has no such capability (local disk). In the empty
+// case the client falls back to DownloadFileHandler, which streams the bytes
+// through this server. mode=inline yields a preview URL instead of a save-as.
+func (h *StorageHandler) DownloadURLHandler(w http.ResponseWriter, r *http.Request) {
+	fileId := r.URL.Query().Get("fileId")
+	driveId := r.URL.Query().Get("driveId")
+	inline := r.URL.Query().Get("mode") == "inline"
+
+	userID, ok := r.Context().Value(archivus_constants.ContextKey(archivus_constants.UserIdKey)).(string)
+	if !ok {
+		response.UnauthorizedResponse(w, "user ID not found in context")
+		return
+	}
+
+	url, err := h.service.DownloadURL(fileId, driveId, userID, inline)
+	if err != nil {
+		response.BadRequestResponse(w, err.Error())
+		return
+	}
+	response.JSONResponse(w, map[string]string{"url": url})
+}
+
 func (h *StorageHandler) GetFilesHandler(w http.ResponseWriter, r *http.Request) {
 	type getFilesRequest struct {
 		Path      string `json:"path"`

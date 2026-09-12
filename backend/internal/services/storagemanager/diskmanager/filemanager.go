@@ -89,7 +89,7 @@ func (dm *DiskManager) UploadFile(relPath, driveId, userId string, file multipar
 // 	return nil
 // }
 
-func (dm *DiskManager) DownloadFile(fileId string, driveId, userId string) (*os.File, *models.FileMetadata, error) {
+func (dm *DiskManager) DownloadFile(fileId string, driveId, userId string) (io.ReadSeekCloser, *models.FileMetadata, error) {
 	hasAccess, err := dm.CheckUserHasDriveAccess(userId, driveId)
 	if err != nil {
 		return nil, nil, err
@@ -98,6 +98,21 @@ func (dm *DiskManager) DownloadFile(fileId string, driveId, userId string) (*os.
 		return nil, nil, errors.New("user does not have access to this drive")
 	}
 	return dm.openFileByID(fileId)
+}
+
+// DownloadURL always reports "unsupported" for local disk: bytes live on this
+// machine, so there is nothing to hand off to a cloud URL. It still checks
+// access so the caller's authorization behavior matches DownloadFile; an empty
+// URL tells the client to stream through DownloadFile instead.
+func (dm *DiskManager) DownloadURL(fileId string, driveId, userId string, inline bool) (string, error) {
+	hasAccess, err := dm.CheckUserHasDriveAccess(userId, driveId)
+	if err != nil {
+		return "", err
+	}
+	if !hasAccess {
+		return "", errors.New("user does not have access to this drive")
+	}
+	return "", nil
 }
 
 // openFileByID loads a file's metadata and opens its bytes. Shared by the

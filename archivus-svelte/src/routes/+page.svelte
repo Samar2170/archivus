@@ -4,7 +4,7 @@
 	import { page } from "$app/stores";
 	import { authStore } from "$lib/stores/auth";
 	import { getUserInfo, type DriveUser } from "$lib/api/auth";
-	import { getFiles, deleteFile, downloadFile } from "$lib/api/files";
+	import { getFiles, deleteFile, downloadFileToDisk, requestPreviewUrl } from "$lib/api/files";
 	import { deleteFolder } from "$lib/api/folder";
 	import type { FileMetaData } from "$lib/api/files";
 	import {
@@ -209,19 +209,14 @@
 		}
 	}
 
-	// Fetch the file as a blob and trigger a browser download. Shared by the
-	// card download icon, the context menu and the viewer's download CTA.
+	// Download a file, preferring a direct object-storage URL and falling back
+	// to the authenticated stream. Shared by the card download icon, the
+	// context menu and the viewer's download CTA.
 	async function downloadBlob(file: FileMetaData) {
 		const driveId = $authStore.driveId;
 		if (!driveId) return;
 		try {
-			const blob = await downloadFile(file.ID, driveId);
-			const url = URL.createObjectURL(blob);
-			const a = document.createElement("a");
-			a.href = url;
-			a.download = file.Name;
-			a.click();
-			URL.revokeObjectURL(url);
+			await downloadFileToDisk(file, driveId);
 		} catch (err) {
 			alert("Download failed: " + (err as Error).message);
 		}
@@ -230,6 +225,14 @@
 	async function handleMenuDownload(file: FileMetaData) {
 		menu = null;
 		await downloadBlob(file);
+	}
+
+	// Direct inline URL for the viewer, so large previews stream from object
+	// storage instead of buffering. "" makes the viewer fall back to a blob.
+	async function resolveViewerPreview(file: FileMetaData): Promise<string> {
+		const driveId = $authStore.driveId;
+		if (!driveId) return "";
+		return requestPreviewUrl(file.ID, driveId);
 	}
 
 	async function confirmDelete() {
@@ -406,6 +409,7 @@
 		open={viewerFile !== null}
 		onClose={() => (viewerFile = null)}
 		onDownload={downloadBlob}
+		resolvePreviewUrl={resolveViewerPreview}
 	/>
 
 	<!-- Right-click / long-press context menu -->

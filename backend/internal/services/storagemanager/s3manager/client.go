@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"mime"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -190,6 +191,43 @@ func (c *Client) PresignGetObject(ctx context.Context, bucket, key string, expir
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
 	}, s3.WithPresignExpires(expiry))
+	if err != nil {
+		return "", err
+	}
+	return req.URL, nil
+}
+
+// PresignGetObjectDownload mints a URL that makes the browser treat the object
+// as an attachment with the given filename, so it saves to disk instead of
+// rendering inline. The filename is encoded per RFC 2231, which keeps unicode
+// names intact across browsers.
+func (c *Client) PresignGetObjectDownload(ctx context.Context, bucket, key, filename string, expiry time.Duration) (string, error) {
+	disposition := mime.FormatMediaType("attachment", map[string]string{"filename": filename})
+	req, err := c.presign.PresignGetObject(ctx, &s3.GetObjectInput{
+		Bucket:                     aws.String(bucket),
+		Key:                        aws.String(key),
+		ResponseContentDisposition: aws.String(disposition),
+	}, s3.WithPresignExpires(expiry))
+	if err != nil {
+		return "", err
+	}
+	return req.URL, nil
+}
+
+// PresignGetObjectPreview mints an inline URL for embedding in the page. The
+// response Content-Type is pinned to the stored type: uploads are often saved
+// as application/octet-stream, which browsers refuse to render, and this fixes
+// that without downloading the bytes first.
+func (c *Client) PresignGetObjectPreview(ctx context.Context, bucket, key, contentType string, expiry time.Duration) (string, error) {
+	input := &s3.GetObjectInput{
+		Bucket:                     aws.String(bucket),
+		Key:                        aws.String(key),
+		ResponseContentDisposition: aws.String("inline"),
+	}
+	if contentType != "" {
+		input.ResponseContentType = aws.String(contentType)
+	}
+	req, err := c.presign.PresignGetObject(ctx, input, s3.WithPresignExpires(expiry))
 	if err != nil {
 		return "", err
 	}

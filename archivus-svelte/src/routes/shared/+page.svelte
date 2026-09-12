@@ -7,6 +7,8 @@
 		getSharedRoots,
 		listSharedFiles,
 		downloadSharedFile,
+		downloadSharedFileToDisk,
+		requestSharedPreviewUrl,
 		type SharedRoot,
 	} from "$lib/api/shared";
 	import type { FileMetaData } from "$lib/api/files";
@@ -127,17 +129,18 @@
 		return downloadSharedFile(file.ID, driveId, rootPath);
 	}
 
-	// Fetch the file as a blob and trigger a browser download, shared by the
-	// card download icon and the viewer's download CTA.
+	// Direct inline URL for the viewer, so large previews stream from object
+	// storage instead of buffering. "" makes the viewer fall back to a blob.
+	async function resolveSharedPreview(file: FileMetaData): Promise<string> {
+		return requestSharedPreviewUrl(file.ID, driveId, rootPath);
+	}
+
+	// Download a file, preferring a direct object-storage URL and falling back
+	// to the authenticated shared stream. Shared by the card download icon and
+	// the viewer's download CTA.
 	async function downloadBlob(file: FileMetaData) {
 		try {
-			const blob = await fetchSharedBlob(file);
-			const url = URL.createObjectURL(blob);
-			const a = document.createElement("a");
-			a.href = url;
-			a.download = file.Name;
-			a.click();
-			URL.revokeObjectURL(url);
+			await downloadSharedFileToDisk(file, driveId, rootPath);
 		} catch (err) {
 			alert("Download failed: " + (err as Error).message);
 		}
@@ -402,5 +405,6 @@
 		onClose={() => (viewerFile = null)}
 		onDownload={downloadBlob}
 		fetchBlob={fetchSharedBlob}
+		resolvePreviewUrl={resolveSharedPreview}
 	/>
 </div>
